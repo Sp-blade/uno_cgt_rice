@@ -5,6 +5,8 @@
 			p.ProductName,
 			COALESCE(p.ProductType, '') AS ProductType,
 			COALESCE(p.ProductBaseUnit, 'pc') AS ProductBaseUnit,
+			COALESCE(p.CanConvertToKg, 0) AS CanConvertToKg,
+			COALESCE(p.KgEquivalentQty, 0) AS KgEquivalentQty,
 			COALESCE(p.StockLimit, 0) AS StockLimit,
 			COALESCE(SUM(CASE WHEN b.BatchLabel = 'OLD' THEN b.QuantityRemaining ELSE 0 END), 0) AS OldStock,
 			COALESCE(SUM(CASE WHEN b.BatchLabel = 'NEW' THEN b.QuantityRemaining ELSE 0 END), 0) AS NewStock,
@@ -12,7 +14,7 @@
 		FROM products p
 		LEFT JOIN inventory_batches b ON b.Product_ID = p.Product_ID
 		WHERE p.IsActive = 1
-		GROUP BY p.Product_ID, p.ProductName, p.ProductType, p.ProductBaseUnit, p.StockLimit
+		GROUP BY p.Product_ID, p.ProductName, p.ProductType, p.ProductBaseUnit, p.CanConvertToKg, p.KgEquivalentQty, p.StockLimit
 		ORDER BY ProductType ASC, ProductName ASC
 	");
 
@@ -48,9 +50,11 @@
 						<th>Product</th>
 						<th>Category</th>
 						<th>Unit</th>
+						<th>Conversion</th>
 						<th class="text-end">Old Stock</th>
 						<th class="text-end">New Stock</th>
 						<th class="text-end">Total</th>
+						<th class="text-end">Available Units</th>
 						<th class="text-end">Limit</th>
 						<th>Status</th>
 					</tr>
@@ -62,14 +66,31 @@
 								$totalStock = (float) $row['TotalStock'];
 								$stockLimit = (float) $row['StockLimit'];
 								$isLow = $stockLimit > 0 && $totalStock <= $stockLimit;
+								$baseUnit = junkshop_normalize_base_unit($row['ProductBaseUnit'] ?? 'pc');
+								$canConvert = (int) ($row['CanConvertToKg'] ?? 0);
+								$equivQty = (float) ($row['KgEquivalentQty'] ?? 0);
+								$alternateStock = junkshop_base_qty_to_alternate($totalStock, $baseUnit, $equivQty);
+								$alternateUnit = junkshop_get_alternate_sale_unit($baseUnit);
+								$stockDisplay = number_format($totalStock, 2) . ' ' . junkshop_unit_label($baseUnit);
+								if ($alternateStock !== null && $alternateUnit !== null && $canConvert === 1) {
+									$stockDisplay .= ' / ' . number_format($alternateStock, 2) . ' ' . junkshop_unit_label($alternateUnit);
+								}
 							?>
 							<tr class="<?php echo $isLow ? 'table-warning' : ''; ?>">
 								<td><?php echo htmlspecialchars($row['ProductName']); ?></td>
 								<td><?php echo htmlspecialchars($row['ProductType'] !== '' ? $row['ProductType'] : 'Products'); ?></td>
-								<td><?php echo strtoupper(htmlspecialchars($row['ProductBaseUnit'])); ?></td>
+								<td><?php echo htmlspecialchars(junkshop_unit_label($baseUnit)); ?></td>
+								<td>
+									<?php if ($canConvert === 1 && $equivQty > 0): ?>
+										<span class="badge text-bg-info"><?php echo htmlspecialchars(junkshop_conversion_label($baseUnit, $equivQty)); ?></span>
+									<?php else: ?>
+										<span class="text-muted">Base unit only</span>
+									<?php endif; ?>
+								</td>
 								<td class="text-end"><?php echo number_format($row['OldStock'], 2); ?></td>
 								<td class="text-end"><?php echo number_format($row['NewStock'], 2); ?></td>
-								<td class="text-end fw-semibold"><?php echo number_format($totalStock, 2); ?></td>
+								<td class="text-end fw-semibold"><?php echo number_format($totalStock, 2); ?> <?php echo htmlspecialchars(junkshop_unit_label($baseUnit)); ?></td>
+								<td class="text-end fw-semibold"><?php echo htmlspecialchars($stockDisplay); ?></td>
 								<td class="text-end"><?php echo number_format($stockLimit, 2); ?></td>
 								<td>
 									<?php if ($isLow): ?>
@@ -81,7 +102,7 @@
 							</tr>
 						<?php endwhile; ?>
 					<?php else: ?>
-						<tr><td colspan="8" class="empty-state">No inventory records yet.</td></tr>
+						<tr><td colspan="10" class="empty-state">No inventory records yet.</td></tr>
 					<?php endif; ?>
 				</tbody>
 			</table>

@@ -64,7 +64,7 @@
 				<div class="line"></div>
 
 				<div class="total">
-					<p>Grand Total <span>&#8369;<?php echo number_format($grandTotal, 2); ?></span></p>
+					<p class="total-emphasis">Grand Total <span class="total-value">&#8369;<?php echo number_format($grandTotal, 2); ?></span></p>
 				</div>
 
 				<div class="footer">

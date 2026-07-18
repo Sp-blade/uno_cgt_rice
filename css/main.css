@@ -540,6 +540,30 @@ body {
 	background: rgba(248, 250, 252, 0.85);
 }
 
+.sale-checkout-section {
+	position: relative;
+	z-index: 3;
+	margin-bottom: 1.5rem !important;
+}
+
+#dynamicSaleFields {
+	position: relative;
+	z-index: 1;
+}
+
+.sale-item-line {
+	margin-left: 0;
+	margin-right: 0;
+}
+
+.sale-row .product-name-cell {
+	min-width: 0;
+}
+
+.sale-row .sale-action-cell .icon-action-group {
+	margin-top: 0;
+}
+
 .transaction-entry-row:last-child {
 	margin-bottom: 0;
 }

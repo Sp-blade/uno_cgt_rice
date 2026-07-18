@@ -223,8 +223,7 @@
 					<h3>Recent sales records</h3>
 				</div>
 				<div class="d-flex gap-2 flex-wrap">
-					<a class="btn btn-info" href="?mainmenu=sell_product_others">Sell Product (Others)</a>
-					<a class="btn btn-outline-primary" href="?mainmenu=sell_product_lpg">Sell Product (LPG)</a>
+					<a class="btn btn-info" href="?mainmenu=sell_product_others">Sell Product</a>
 					<a class="btn btn-outline-secondary" href="?mainmenu=sales_list">View Full History</a>
 				</div>
 			</div>
@@ -247,7 +246,7 @@
 							<?php if ($recentSales && $recentSales->num_rows > 0): ?>
 								<?php while ($sale = $recentSales->fetch_assoc()): ?>
 									<tr>
-										<td><?php echo date('M-d-Y', strtotime($sale['SaleDate'])); ?></td>
+										<td><?php echo junkshop_format_datetime($sale['SaleDate']); ?></td>
 										<td><?php echo $sale['DeliveryNo']; ?></td>
 										<td><?php echo htmlspecialchars($sale['CustomerName']); ?></td>
 										<td>

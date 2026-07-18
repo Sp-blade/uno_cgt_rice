@@ -121,6 +121,14 @@ body {
 	font-size: 0.88rem;
 }
 
+.receipt-meta-customer {
+	margin-top: 10px;
+}
+
+.receipt-meta-customer > div {
+	width: 100%;
+}
+
 .receipt-meta strong {
 	display: block;
 	font-size: 0.95rem;
@@ -188,12 +196,18 @@ body {
 	align-items: center;
 	gap: 12px;
 	margin: 0;
-	font-size: 0.98rem;
-	font-weight: 800;
+	font-size: 0.88rem;
+	font-weight: 700;
 }
 
 .total p span {
+	font-size: 0.88rem;
+	font-weight: 700;
+}
+
+.total p .total-value {
 	font-size: 1.15rem;
+	font-weight: 800;
 }
 
 .footer {
@@ -386,8 +400,9 @@ body {
 		font-size: 7pt;
 	}
 
-	.total p span {
+	.total p .total-value {
 		font-size: 9pt;
+		font-weight: 800;
 	}
 
 	.line {

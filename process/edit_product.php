@@ -3,16 +3,23 @@
 	$product_id = mysqli_real_escape_string($connectDB, $_GET['productID'] ?? $_GET['ID'] ?? 0);
 	$productPrice = mysqli_real_escape_string($connectDB, $_GET['product_price'] ?? $_GET['total_purchase_price'] ?? 0);
 	$sellingPrice = mysqli_real_escape_string($connectDB, $_GET['selling_price'] ?? $_GET['product_price'] ?? 0);
+	$alternateSellingPriceValue = (float) ($_GET['alternate_selling_price'] ?? 0);
 	$stockLimit = mysqli_real_escape_string($connectDB, $_GET['stock_limit'] ?? 0);
 	$productName = mysqli_real_escape_string($connectDB,$_GET['product_name'] ?? '');
 	$productType = mysqli_real_escape_string($connectDB, $_GET['product_type'] ?? '');
-	$productBaseUnit = strtolower(trim((string) ($_GET['product_base_unit'] ?? 'pc'))) === 'kg' ? 'kg' : 'pc';
+	$productBaseUnit = junkshop_normalize_base_unit($_GET['product_base_unit'] ?? 'pc');
 	$isSubProduct = 0;
 	$parentProductId = 0;
-	$canConvertToKg = 0;
-	$kgEquivalentQty = 0;
+	$canConvertToKg = isset($_GET['can_convert_to_kg']) ? 1 : 0;
+	$kgEquivalentQty = (float) ($_GET['kg_equivalent_qty'] ?? 0);
+	if (!junkshop_can_convert_units($productBaseUnit, $canConvertToKg, $kgEquivalentQty)) {
+		$canConvertToKg = 0;
+		$kgEquivalentQty = 0;
+		$alternateSellingPriceValue = 0;
+	}
 	$productBaseUnit = mysqli_real_escape_string($connectDB, $productBaseUnit);
 	$kgEquivalentQty = mysqli_real_escape_string($connectDB, number_format($kgEquivalentQty, 2, '.', ''));
+	$alternateSellingPrice = mysqli_real_escape_string($connectDB, number_format($alternateSellingPriceValue, 2, '.', ''));
 	$oldProductName = mysqli_real_escape_string($connectDB, $_GET['old_product_name'] ?? $productName);
 	$purchasesHasProductId = false;
 	$checkProductIdColumn = $connectDB->query("SHOW COLUMNS FROM purchases LIKE 'Product_ID'");
@@ -26,7 +33,7 @@
 
 			$product_id = mysqli_real_escape_string($connectDB, $_GET['productID']);
 
-			$sql_editProduct = "UPDATE products SET ProductType = '$productType', ProductBaseUnit = '$productBaseUnit', ProductPrice = '$productPrice', SellingPrice = '$sellingPrice', StockLimit = '$stockLimit', CanConvertToKg = '$canConvertToKg', KgEquivalentQty = '$kgEquivalentQty', ParentProduct_ID = '$parentProductId', IsSubProduct = '$isSubProduct' WHERE Product_ID = '$product_id'";
+			$sql_editProduct = "UPDATE products SET ProductType = '$productType', ProductBaseUnit = '$productBaseUnit', ProductPrice = '$productPrice', SellingPrice = '$sellingPrice', AlternateSellingPrice = '$alternateSellingPrice', StockLimit = '$stockLimit', CanConvertToKg = '$canConvertToKg', KgEquivalentQty = '$kgEquivalentQty', ParentProduct_ID = '$parentProductId', IsSubProduct = '$isSubProduct' WHERE Product_ID = '$product_id'";
 
 			if ($connectDB->query($sql_editProduct)){
 				if ($isSubProduct === 0) {
@@ -100,15 +107,15 @@
 				break;
 			}
 
-			$saleDate = mysqli_real_escape_string($connectDB, $_GET['sale_date']);
+			$saleDate = mysqli_real_escape_string($connectDB, junkshop_normalize_datetime($_GET['sale_date'] ?? ''));
 			$deliveryNo = mysqli_real_escape_string($connectDB, $_GET['deliveryNo'] ?? 0);
 			$customerName = mysqli_real_escape_string($connectDB, $_GET['customer_name']);
 			$quantity = mysqli_real_escape_string($connectDB, $_GET['Quantity']);
 			$unitPrice = mysqli_real_escape_string($connectDB, $_GET['unit_price']);
 			$totalSalePrice = mysqli_real_escape_string($connectDB, $_GET['total_sale_price']);
-			$saleUnit = strtolower(trim((string) ($_GET['sale_unit'] ?? 'pc'))) === 'kg' ? 'kg' : 'pc';
+			$saleUnit = junkshop_normalize_base_unit($_GET['sale_unit'] ?? 'pc');
 			$kgConversionQtyForSale = (float) ($_GET['kg_conversion_qty'] ?? 0);
-			if ($saleUnit !== 'kg') {
+			if ($saleUnit === 'pc') {
 				$kgConversionQtyForSale = 0;
 			}
 			$saleUnit = mysqli_real_escape_string($connectDB, $saleUnit);

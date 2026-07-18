@@ -22,9 +22,10 @@
 			$row['ProductName'] = trim((string) ($row['ProductName'] ?? ''));
 			$row['ParentProductName'] = trim((string) ($row['ParentProductName'] ?? ''));
 			$row['ProductType'] = trim((string) ($row['ProductType'] ?? ''));
-			$row['ProductBaseUnit'] = strtolower(trim((string) ($row['ProductBaseUnit'] ?? 'pc'))) === 'kg' ? 'kg' : 'pc';
+			$row['ProductBaseUnit'] = junkshop_normalize_base_unit($row['ProductBaseUnit'] ?? 'pc');
 			$row['ProductPrice'] = (float) ($row['ProductPrice'] ?? 0);
 			$row['SellingPrice'] = (float) ($row['SellingPrice'] ?? 0);
+			$row['AlternateSellingPrice'] = (float) ($row['AlternateSellingPrice'] ?? 0);
 			$row['StockLimit'] = (float) ($row['StockLimit'] ?? 0);
 			$row['CanConvertToKg'] = (int) ($row['CanConvertToKg'] ?? 0);
 			$row['KgEquivalentQty'] = (float) ($row['KgEquivalentQty'] ?? 0);
@@ -68,7 +69,7 @@
 			}
 
 			$productType = trim((string) ($row['ProductType'] ?? ''));
-			$productUnit = strtolower(trim((string) ($row['ProductBaseUnit'] ?? 'pc'))) === 'kg' ? 'kg' : 'pc';
+			$productUnit = junkshop_normalize_base_unit($row['ProductBaseUnit'] ?? 'pc');
 			$productPurchasePrice = (float) ($row['ProductPrice'] ?? 0);
 
 			$activeExportProducts[] = [
@@ -163,9 +164,10 @@
 						<th>Type / Category</th>
 						<th>Base Unit</th>
 						<th>Purchase Price</th>
-						<th>Selling Price</th>
-						<th>Stock Limit</th>
-						<th>KG Conversion</th>
+						<th>Base Price</th>
+						<th>Alternate Price</th>
+						<th>Stock Limit (Base Unit)</th>
+						<th>Unit Conversion</th>
 						<th class="text-center">Action</th>
 						<th class="text-center">Status</th>
 					</tr>
@@ -173,7 +175,7 @@
 				<tbody>
 					<?php if (count($products) === 0): ?>
 						<tr>
-							<td colspan="11" class="empty-state">No products matched your search.</td>
+							<td colspan="12" class="empty-state">No products matched your search.</td>
 						</tr>
 					<?php else: ?>
 						<?php foreach ($products as $index => $Product): ?>
@@ -185,6 +187,8 @@
 								data-product-type="<?php echo htmlspecialchars($Product['ProductType'] !== '' ? $Product['ProductType'] : 'Products', ENT_QUOTES); ?>"
 								data-product-unit="<?php echo htmlspecialchars($Product['ProductBaseUnit'], ENT_QUOTES); ?>"
 								data-product-price="<?php echo htmlspecialchars((string) round($Product['ProductPrice'], 2), ENT_QUOTES); ?>"
+								data-selling-price="<?php echo htmlspecialchars((string) round($Product['SellingPrice'], 2), ENT_QUOTES); ?>"
+								data-alternate-selling-price="<?php echo htmlspecialchars((string) round($Product['AlternateSellingPrice'], 2), ENT_QUOTES); ?>"
 								data-stock-limit="<?php echo htmlspecialchars((string) round($Product['StockLimit'], 2), ENT_QUOTES); ?>"
 								data-product-active="<?php echo (int) $Product['IsActive']; ?>"
 								data-product-exportable="<?php echo ($Product['IsSubProduct'] === 0) ? '1' : '0'; ?>"
@@ -198,16 +202,38 @@
 								</td>
 								<td><?php echo htmlspecialchars($Product['ProductType'] !== '' ? $Product['ProductType'] : 'Uncategorized'); ?></td>
 								<td>
-									<span class="badge <?php echo ($Product['ProductBaseUnit'] === 'kg') ? 'text-bg-success' : 'text-bg-secondary'; ?>">
-										<?php echo ($Product['ProductBaseUnit'] === 'kg') ? 'KG' : 'Pcs'; ?>
+									<?php
+										$unitBadgeClass = 'text-bg-secondary';
+										if ($Product['ProductBaseUnit'] === 'kg') {
+											$unitBadgeClass = 'text-bg-success';
+										} elseif ($Product['ProductBaseUnit'] === 'sack') {
+											$unitBadgeClass = 'text-bg-primary';
+										} elseif ($Product['ProductBaseUnit'] === 'tray') {
+											$unitBadgeClass = 'text-bg-warning';
+										}
+									?>
+									<span class="badge <?php echo $unitBadgeClass; ?>">
+										<?php echo junkshop_unit_label($Product['ProductBaseUnit']); ?>
 									</span>
 								</td>
 								<td>&#8369;<?php echo number_format($Product['ProductPrice'], 2); ?></td>
-								<td>&#8369;<?php echo number_format($Product['SellingPrice'], 2); ?></td>
-								<td><?php echo number_format($Product['StockLimit'], 2); ?></td>
 								<td>
-									<?php if ($Product['ProductBaseUnit'] === 'pc' && $Product['CanConvertToKg'] === 1 && $Product['KgEquivalentQty'] > 0): ?>
-										<span class="badge text-bg-info">1 KG = <?php echo number_format($Product['KgEquivalentQty'], 2); ?> pcs</span>
+									<div>&#8369;<?php echo number_format($Product['SellingPrice'], 2); ?></div>
+									<small class="text-muted"><?php echo htmlspecialchars(junkshop_unit_label($Product['ProductBaseUnit'])); ?> Price</small>
+								</td>
+								<td>
+									<?php $alternateUnitForProduct = junkshop_get_alternate_sale_unit($Product['ProductBaseUnit']); ?>
+									<?php if ($Product['CanConvertToKg'] === 1 && $Product['KgEquivalentQty'] > 0 && $alternateUnitForProduct !== null): ?>
+										<div>&#8369;<?php echo number_format($Product['AlternateSellingPrice'], 2); ?></div>
+										<small class="text-muted"><?php echo htmlspecialchars(junkshop_unit_label($alternateUnitForProduct)); ?> Price</small>
+									<?php else: ?>
+										<span class="text-muted">Not set</span>
+									<?php endif; ?>
+								</td>
+								<td><?php echo number_format($Product['StockLimit'], 2); ?> <?php echo htmlspecialchars(junkshop_unit_label($Product['ProductBaseUnit'])); ?></td>
+								<td>
+									<?php if ($Product['CanConvertToKg'] === 1 && $Product['KgEquivalentQty'] > 0): ?>
+										<span class="badge text-bg-info"><?php echo htmlspecialchars(junkshop_conversion_label($Product['ProductBaseUnit'], $Product['KgEquivalentQty'])); ?></span>
 									<?php else: ?>
 										<span class="text-muted">Not set</span>
 									<?php endif; ?>
@@ -225,6 +251,7 @@
 											data-base-unit="<?php echo htmlspecialchars((string) $Product['ProductBaseUnit']); ?>"
 											data-price="<?php echo $Product['ProductPrice']; ?>"
 											data-selling-price="<?php echo $Product['SellingPrice']; ?>"
+											data-alternate-selling-price="<?php echo $Product['AlternateSellingPrice']; ?>"
 											data-stock-limit="<?php echo $Product['StockLimit']; ?>"
 											data-can-convert="<?php echo $Product['CanConvertToKg']; ?>"
 											data-kg-equivalent="<?php echo $Product['KgEquivalentQty']; ?>"
@@ -281,8 +308,11 @@
 			var productName = button.data('name');
 			var productType = button.data('type');
 			var productBaseUnit = button.attr('data-base-unit') || 'pc';
+			var canConvert = button.attr('data-can-convert') || '0';
+			var kgEquivalent = button.attr('data-kg-equivalent') || '0';
 			var productPrice = button.data('price');
 			var sellingPrice = button.attr('data-selling-price') || 0;
+			var alternateSellingPrice = button.attr('data-alternate-selling-price') || 0;
 			var stockLimit = button.attr('data-stock-limit') || 0;
 
 			var modal = $(this);
@@ -290,17 +320,29 @@
 			modal.find('input[name="product_name"]').val(productName);
 			modal.find('input[name="product_type"]').val(productType);
 			modal.find('select[name="product_base_unit"]').val(productBaseUnit);
+			modal.find('input[name="can_convert_to_kg"]').prop('checked', Number(canConvert) === 1);
+			modal.find('input[name="kg_equivalent_qty"]').val(kgEquivalent);
 			modal.find('input[name="product_price"]').val(productPrice);
 			modal.find('input[name="selling_price"]').val(sellingPrice);
+			modal.find('input[name="alternate_selling_price"]').val(alternateSellingPrice);
 			modal.find('input[name="stock_limit"]').val(stockLimit);
+			toggleProductConversionFields(modal[0]);
 		});
 
 		$('#addNewProduct').on('show.bs.modal', function () {
 			var modal = $(this);
 			modal.find('input[name="product_price"]').val('');
 			modal.find('input[name="selling_price"]').val('');
+			modal.find('input[name="alternate_selling_price"]').val('');
 			modal.find('input[name="stock_limit"]').val('0');
 			modal.find('select[name="product_base_unit"]').val('pc');
+			modal.find('input[name="can_convert_to_kg"]').prop('checked', false);
+			modal.find('input[name="kg_equivalent_qty"]').val('0');
+			toggleProductConversionFields(modal[0]);
+		});
+
+		$(document).on('change', '#edit_product_base_unit, #new_product_base_unit, #edit_can_convert_to_kg, #new_can_convert_to_kg', function () {
+			toggleProductConversionFields(this.closest('.modal'));
 		});
 
 		initializeProductListSorting();
@@ -332,7 +374,80 @@
 	}
 
 	function getUnitLabel(unit) {
-		return String(unit || '').toLowerCase() === 'kg' ? 'Per KG' : 'Per Pcs';
+		var labels = { pc: 'Per Pcs', kg: 'Per KG', sack: 'Per Sack', tray: 'Per Tray' };
+		var normalized = String(unit || 'pc').toLowerCase();
+		return labels[normalized] || ('Per ' + normalized.toUpperCase());
+	}
+
+	function getAlternateUnitLabel(baseUnit) {
+		var labels = { sack: 'KG per Sack', tray: 'Pcs per Tray', pc: 'Pcs per KG' };
+		var normalized = String(baseUnit || 'pc').toLowerCase();
+		return labels[normalized] || 'Alternate Qty';
+	}
+
+	function getBasePriceLabel(baseUnit) {
+		var normalized = String(baseUnit || 'pc').toLowerCase();
+		var labels = { pc: 'Pcs Price', kg: 'KG Price', sack: 'Sack Price', tray: 'Tray Price' };
+		return labels[normalized] || 'Base Unit Price';
+	}
+
+	function getAlternatePriceLabel(baseUnit) {
+		var alternateMap = { sack: 'KG Price', tray: 'Pcs Price', pc: 'KG Price' };
+		var normalized = String(baseUnit || 'pc').toLowerCase();
+		return alternateMap[normalized] || 'Alternate Unit Price';
+	}
+
+	function toggleProductConversionFields(modalElement) {
+		if (!modalElement) {
+			return;
+		}
+
+		var baseUnitSelect = modalElement.querySelector('select[name="product_base_unit"]');
+		var conversionWrap = modalElement.querySelector('.product-conversion-wrap');
+		var conversionHint = modalElement.querySelector('.product-conversion-hint');
+		var conversionLabel = modalElement.querySelector('.product-conversion-label');
+		var basePriceLabel = modalElement.querySelector('.product-base-price-label');
+		var alternatePriceWrap = modalElement.querySelector('.product-alternate-price-wrap');
+		var alternatePriceLabel = modalElement.querySelector('.product-alternate-price-label');
+		var alternatePriceInput = modalElement.querySelector('input[name="alternate_selling_price"]');
+		var convertCheckbox = modalElement.querySelector('input[name="can_convert_to_kg"]');
+		if (!baseUnitSelect || !conversionWrap) {
+			return;
+		}
+
+		var baseUnit = String(baseUnitSelect.value || 'pc').toLowerCase();
+		var supportsConversion = ['sack', 'tray', 'pc'].includes(baseUnit);
+		var conversionEnabled = supportsConversion && !!convertCheckbox && convertCheckbox.checked;
+		conversionWrap.style.display = supportsConversion ? 'block' : 'none';
+		if (basePriceLabel) {
+			basePriceLabel.textContent = getBasePriceLabel(baseUnit);
+		}
+		if (alternatePriceWrap) {
+			alternatePriceWrap.style.display = conversionEnabled ? 'block' : 'none';
+		}
+		if (alternatePriceLabel) {
+			alternatePriceLabel.textContent = getAlternatePriceLabel(baseUnit);
+		}
+		if (alternatePriceInput) {
+			alternatePriceInput.required = conversionEnabled;
+			if (!conversionEnabled) {
+				alternatePriceInput.value = '';
+			}
+		}
+		if (conversionHint) {
+			if (baseUnit === 'sack') {
+				conversionHint.textContent = 'Example: 1 Sack = 50 KG lets you sell rice by sack or by kilogram.';
+			} else if (baseUnit === 'tray') {
+				conversionHint.textContent = 'Example: 1 Tray = 30 Pcs lets you sell eggs by tray or by piece.';
+			} else if (baseUnit === 'pc') {
+				conversionHint.textContent = 'Example: 1 KG = 50 Pcs lets you sell by kilogram or by piece.';
+			} else {
+				conversionHint.textContent = '';
+			}
+		}
+		if (conversionLabel) {
+			conversionLabel.textContent = getAlternateUnitLabel(baseUnit);
+		}
 	}
 
 	function drawRoundedRectangle(ctx, x, y, width, height, radius) {
@@ -379,7 +494,7 @@
 				id: Number(dataset.productId || 0),
 				name: String(dataset.productName || '').trim(),
 				type: String(dataset.productType || 'Products').trim() || 'Products',
-				unit: String(dataset.productUnit || 'pc').toLowerCase() === 'kg' ? 'kg' : 'pc',
+				unit: String(dataset.productUnit || 'pc').toLowerCase(),
 				price: Number(dataset.productPrice || 0),
 				active: Number(dataset.productActive || 0),
 				exportable: Number(dataset.productExportable || 0)
@@ -840,16 +955,33 @@
 					<select class="form-select mb-3" id="edit_product_base_unit" name="product_base_unit" required>
 						<option value="pc">Pcs</option>
 						<option value="kg">KG</option>
+						<option value="sack">Sack</option>
+						<option value="tray">Tray</option>
 					</select>
+
+					<div class="product-conversion-wrap mb-3">
+						<div class="form-check mb-2">
+							<input class="form-check-input" type="checkbox" value="1" id="edit_can_convert_to_kg" name="can_convert_to_kg" />
+							<label class="form-check-label" for="edit_can_convert_to_kg">Enable alternate sale unit</label>
+						</div>
+						<label for="edit_kg_equivalent_qty" class="form-label product-conversion-label">Alternate Qty</label>
+						<input type="number" step="0.01" min="0" class="form-control" id="edit_kg_equivalent_qty" name="kg_equivalent_qty" value="0" />
+						<small class="text-muted d-block mt-2 product-conversion-hint"></small>
+					</div>
 
 					<label for="edit_product_price" class="form-label">Purchase Price</label>
 					<input type="number" step="0.01" min="0" class="form-control" id="edit_product_price" name="product_price" value="" />
 					<small class="text-muted d-block mb-3 purchase-price-hint">Used for purchases and purchase history.</small>
 
-					<label for="edit_selling_price" class="form-label">Selling Price</label>
+					<label for="edit_selling_price" class="form-label product-base-price-label">Selling Price</label>
 					<input type="number" step="0.01" min="0" class="form-control mb-3" id="edit_selling_price" name="selling_price" value="" required />
 
-					<label for="edit_stock_limit" class="form-label">Stock Alert Limit</label>
+					<div class="product-alternate-price-wrap mb-3" style="display: none;">
+						<label for="edit_alternate_selling_price" class="form-label product-alternate-price-label">Alternate Unit Price</label>
+						<input type="number" step="0.01" min="0" class="form-control" id="edit_alternate_selling_price" name="alternate_selling_price" value="" />
+					</div>
+
+					<label for="edit_stock_limit" class="form-label">Stock Alert Limit (Base Unit)</label>
 					<input type="number" step="0.01" min="0" class="form-control mb-3" id="edit_stock_limit" name="stock_limit" value="0" />
 
 				</div>
@@ -889,16 +1021,33 @@
 					<select class="form-select mb-3" id="new_product_base_unit" name="product_base_unit" required>
 						<option value="pc" selected>Pcs</option>
 						<option value="kg">KG</option>
+						<option value="sack">Sack</option>
+						<option value="tray">Tray</option>
 					</select>
+
+					<div class="product-conversion-wrap mb-3">
+						<div class="form-check mb-2">
+							<input class="form-check-input" type="checkbox" value="1" id="new_can_convert_to_kg" name="can_convert_to_kg" />
+							<label class="form-check-label" for="new_can_convert_to_kg">Enable alternate sale unit</label>
+						</div>
+						<label for="new_kg_equivalent_qty" class="form-label product-conversion-label">Alternate Qty</label>
+						<input type="number" step="0.01" min="0" class="form-control" id="new_kg_equivalent_qty" name="kg_equivalent_qty" value="0" />
+						<small class="text-muted d-block mt-2 product-conversion-hint"></small>
+					</div>
 
 					<label for="new_product_price" class="form-label">Purchase Price</label>
 					<input type="number" step="0.01" min="0" class="form-control" id="new_product_price" name="product_price" value="" />
 					<small class="text-muted d-block mb-3 purchase-price-hint">Used for purchases and purchase history.</small>
 
-					<label for="new_selling_price" class="form-label">Selling Price</label>
+					<label for="new_selling_price" class="form-label product-base-price-label">Selling Price</label>
 					<input type="number" step="0.01" min="0" class="form-control mb-3" id="new_selling_price" name="selling_price" value="" required />
 
-					<label for="new_stock_limit" class="form-label">Stock Alert Limit</label>
+					<div class="product-alternate-price-wrap mb-3" style="display: none;">
+						<label for="new_alternate_selling_price" class="form-label product-alternate-price-label">Alternate Unit Price</label>
+						<input type="number" step="0.01" min="0" class="form-control" id="new_alternate_selling_price" name="alternate_selling_price" value="" />
+					</div>
+
+					<label for="new_stock_limit" class="form-label">Stock Alert Limit (Base Unit)</label>
 					<input type="number" step="0.01" min="0" class="form-control mb-3" id="new_stock_limit" name="stock_limit" value="0" />
 
 				</div>

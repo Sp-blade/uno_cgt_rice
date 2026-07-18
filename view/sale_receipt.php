@@ -1,21 +1,146 @@
-<?php $receiptItemCount = count(array_filter($productNames, function($name) { return trim((string) $name) !== ''; })); ?>
+<?php
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+        echo "<script>window.location.href = '?mainmenu=sell_product_others';</script>";
+        exit;
+    }
+
+    $previousMenu = $_POST['previousmenu'] ?? 'sell_product_others';
+    $salesType = strtoupper(trim((string) ($_POST['sales_type'] ?? 'OTHERS')));
+    if (!in_array($salesType, ['OTHERS', 'LPG'], true)) {
+        $salesType = 'OTHERS';
+    }
+
+    $saleDate = $_POST['sale_date'] ?? date('Y-m-d');
+    $customerName = trim((string) ($_POST['customer_name'] ?? 'Walk-in Customer'));
+    if ($customerName === '') {
+        $customerName = 'Walk-in Customer';
+    }
+    $customerAddress = trim((string) ($_POST['customer_address'] ?? ''));
+
+    $saleNotes = trim((string) ($_POST['sale_notes'] ?? ''));
+
+    $customerType = strtolower(trim((string) ($_POST['customer_type'] ?? 'walk_in')));
+    $isRegisteredCustomer = $customerType === 'registered';
+    $cashGiven = (float) ($_POST['cash_given'] ?? 0);
+    $amountDue = (float) ($_POST['amount_due'] ?? 0);
+
+    $paymentStatuses = isset($_POST['payment_status']) && is_array($_POST['payment_status']) ? $_POST['payment_status'] : [];
+    $amountPaids = isset($_POST['amount_paid']) && is_array($_POST['amount_paid']) ? $_POST['amount_paid'] : [];
+    $dueDates = isset($_POST['due_date']) && is_array($_POST['due_date']) ? $_POST['due_date'] : [];
+
+    $productNames = isset($_POST['product_name']) && is_array($_POST['product_name']) ? $_POST['product_name'] : [];
+    $productQuantities = isset($_POST['product_quantity']) && is_array($_POST['product_quantity']) ? $_POST['product_quantity'] : [];
+    $productPrices = isset($_POST['product_price']) && is_array($_POST['product_price']) ? $_POST['product_price'] : [];
+    $saleUnits = isset($_POST['sale_unit']) && is_array($_POST['sale_unit']) ? $_POST['sale_unit'] : [];
+
+    $lpgTypes = isset($_POST['lpg_transaction_type']) && is_array($_POST['lpg_transaction_type']) ? $_POST['lpg_transaction_type'] : [];
+    $lpgConditions = isset($_POST['lpg_tank_condition']) && is_array($_POST['lpg_tank_condition']) ? $_POST['lpg_tank_condition'] : [];
+
+    $getSaleNo = $connectDB->query("SELECT DeliveryNo FROM sales ORDER BY DeliveryNo DESC LIMIT 1");
+    if ($getSaleNo && $getSaleNo->num_rows > 0) {
+        $saleNoRow = $getSaleNo->fetch_assoc();
+        $saleNo = (int) $saleNoRow['DeliveryNo'] + 1;
+    } else {
+        $saleNo = 1;
+    }
+
+    $grandTotal = 0;
+    $totalAmountPaid = 0;
+    $totalBalance = 0;
+    $validItems = [];
+    $receiptDueDates = [];
+
+    foreach ($productNames as $index => $productName) {
+        $name = trim((string) $productName);
+        $quantity = (float) ($productQuantities[$index] ?? 0);
+        $price = (float) ($productPrices[$index] ?? 0);
+
+        if ($name === '' || $quantity <= 0 || $price <= 0) {
+            continue;
+        }
+
+        $lpgType = isset($lpgTypes[$index]) ? strtoupper(trim($lpgTypes[$index])) : 'NONE';
+        $lpgCondition = isset($lpgConditions[$index]) ? trim($lpgConditions[$index]) : '';
+
+        $rowTotal = $quantity * $price;
+        $grandTotal += $rowTotal;
+
+        $rowPaymentStatus = strtoupper(trim((string) ($paymentStatuses[$index] ?? 'PAID')));
+        if (!in_array($rowPaymentStatus, ['PAID', 'PARTIAL', 'UNPAID'], true)) {
+            $rowPaymentStatus = 'PAID';
+        }
+        if (!$isRegisteredCustomer) {
+            $rowPaymentStatus = 'PAID';
+        }
+        $rowAmountPaid = (float) ($amountPaids[$index] ?? 0);
+        if ($rowPaymentStatus === 'PAID') {
+            $rowAmountPaid = $rowTotal;
+        } elseif ($rowPaymentStatus === 'UNPAID') {
+            $rowAmountPaid = 0;
+        } else {
+            $rowAmountPaid = min(max($rowAmountPaid, 0), $rowTotal);
+        }
+        $rowBalance = max($rowTotal - $rowAmountPaid, 0);
+        $rowDueDate = trim((string) ($dueDates[$index] ?? ''));
+        if ($rowBalance > 0 && $rowDueDate !== '') {
+            $receiptDueDates[] = $rowDueDate;
+        }
+
+        $rowAmountDue = $rowTotal;
+        if ($isRegisteredCustomer) {
+            if ($rowPaymentStatus === 'PARTIAL') {
+                $rowAmountDue = $rowAmountPaid;
+            } elseif ($rowPaymentStatus === 'UNPAID') {
+                $rowAmountDue = 0;
+            }
+        }
+
+        $totalAmountPaid += $rowAmountPaid;
+        $totalBalance += $rowBalance;
+
+        $validItems[] = [
+            'name' => $name,
+            'qty' => $quantity,
+            'unit' => junkshop_normalize_base_unit($saleUnits[$index] ?? 'pc'),
+            'price' => $price,
+            'total' => $rowTotal,
+            'lpg_type' => $lpgType,
+            'lpg_condition' => $lpgCondition,
+            'payment_status' => $rowPaymentStatus,
+            'amount_paid' => $rowAmountPaid,
+            'balance' => $rowBalance,
+            'amount_due' => $rowAmountDue,
+            'due_date' => $rowDueDate,
+        ];
+    }
+
+    if ($amountDue <= 0) {
+        $amountDue = array_sum(array_column($validItems, 'amount_due'));
+    }
+    $displayChange = $cashGiven > 0 ? max(0, $cashGiven - $amountDue) : 0;
+    $latestDueDate = !empty($receiptDueDates) ? max($receiptDueDates) : '';
+    $receiptItemCount = count($validItems);
+?>
 
 <div class="receipt-page receipt-printable">
 	<div class="receipt-screen-card">
 		<div class="receipt-top-card">
 			<div class="receipt-top-copy">
-				<p class="receipt-kicker">Review Sale</p>
+				<p class="receipt-kicker">Print Preview</p>
 				<h2>Sale Receipt</h2>
-				<p class="receipt-subtitle">Confirm the sale before saving it to inventory and customer balance.</p>
+				<p class="receipt-subtitle">Optimized for 48mm thermal paper printing.</p>
 			</div>
 			<div class="receipt-top-action">
-				<button type="button" onclick="saveAndPrintSaleReceipt(this);" class="btn btn-primary w-100">Print & Save</button>
+				<?php if ($previousMenu === 'sell_product_others' || $previousMenu === 'sell_product_lpg'): ?>
+					<button type="button" onclick="saveAndPrintSaleReceipt(this);" class="btn btn-primary w-100">Print Receipt</button>
+				<?php else: ?>
+					<button type="button" onclick="window.print();" class="btn btn-primary w-100">Print Receipt</button>
+				<?php endif; ?>
 			</div>
 		</div>
-
 		<div class="receipt-preview-shell">
 			<div class="receipt">
-				<div class="receipt-badge noPrint">Sale Receipt</div>
+				<div class="receipt-badge noPrint">48mm Receipt</div>
 
 				<div class="header">
 					<h1><?php echo htmlspecialchars(strtoupper($companyName)); ?></h1>
@@ -27,24 +152,26 @@
 
 				<div class="receipt-meta">
 					<div>
-						<span class="meta-label">Sale No</span>
-						<strong>#<?php echo (int) $saleNo; ?></strong>
+						<span class="meta-label">Invoice</span>
+						<strong>#<?php echo str_pad($saleNo, 5, '0', STR_PAD_LEFT); ?></strong>
 					</div>
 					<div>
-						<span class="meta-label">Date</span>
-						<strong><?php echo date('M-d-Y', strtotime($saleDate)); ?></strong>
+						<span class="meta-label">Date & Time</span>
+						<strong><?php echo junkshop_format_datetime($saleDate); ?></strong>
 					</div>
 				</div>
 
-				<div class="receipt-meta">
+				<div class="receipt-meta receipt-meta-customer">
 					<div>
 						<span class="meta-label">Customer</span>
 						<strong><?php echo htmlspecialchars($customerName); ?></strong>
 					</div>
-					<div>
-						<span class="meta-label">Payment</span>
-						<strong><?php echo htmlspecialchars($paymentStatus); ?></strong>
-					</div>
+					<?php if ($customerAddress !== ''): ?>
+						<div>
+							<span class="meta-label">Address</span>
+							<strong><?php echo htmlspecialchars($customerAddress); ?></strong>
+						</div>
+					<?php endif; ?>
 				</div>
 
 				<div class="line"></div>
@@ -57,32 +184,25 @@
 						</tr>
 					</thead>
 					<tbody>
-						<?php foreach ($productNames as $index => $productName): ?>
-							<?php
-								$name = trim((string) $productName);
-								$quantity = (float) ($productQuantities[$index] ?? 0);
-								$price = (float) ($productPrices[$index] ?? 0);
-								if ($name === '' || $quantity <= 0 || $price <= 0) {
-									continue;
-								}
-								$rowTotal = isset($totalPrices[$index]) ? (float) $totalPrices[$index] : ($quantity * $price);
-								$tankType = strtoupper(trim((string) ($lpgTransactionTypes[$index] ?? 'NONE')));
-								$tankPayment = $tankType === 'SOLD' ? (float) ($lpgTankPayments[$index] ?? 0) : 0;
-								$tankCondition = trim((string) ($lpgTankConditions[$index] ?? ''));
-							?>
+						<?php foreach ($validItems as $item): ?>
 							<tr>
 								<td>
-									<div class="item-name"><?php echo htmlspecialchars($name); ?></div>
-									<div class="item-meta"><?php echo number_format($quantity, 2); ?> x &#8369;<?php echo number_format($price, 2); ?></div>
-									<?php if ($salesType === 'LPG'): ?>
-										<div class="item-meta">
-											Tank: <?php echo htmlspecialchars(ucfirst(strtolower($tankType))); ?>
-											<?php if ($tankCondition !== ''): ?> | <?php echo htmlspecialchars($tankCondition); ?><?php endif; ?>
-											<?php if ($tankPayment > 0): ?> | Tank &#8369;<?php echo number_format($tankPayment, 2); ?><?php endif; ?>
-										</div>
+									<div class="item-name"><?php echo htmlspecialchars($item['name']); ?></div>
+									<div class="item-meta"><?php echo number_format($item['qty'], 2); ?> <?php echo htmlspecialchars(junkshop_unit_label($item['unit'])); ?> x &#8369;<?php echo number_format($item['price'], 2); ?></div>
+									<?php if ($item['lpg_type'] === 'SWAPPED'): ?>
+										<div class="item-meta">Tank: Swapped<?php echo $item['lpg_condition'] !== '' ? ' (' . htmlspecialchars($item['lpg_condition']) . ')' : ''; ?></div>
+									<?php endif; ?>
+									<?php if ($isRegisteredCustomer && $item['payment_status'] !== 'PAID'): ?>
+										<?php
+											$paymentLabel = $item['payment_status'] === 'PARTIAL' ? 'Partial Payment' : 'Loan / Unpaid';
+										?>
+										<div class="item-meta"><?php echo htmlspecialchars($paymentLabel); ?> | Paid: &#8369;<?php echo number_format($item['amount_paid'], 2); ?> | Balance: &#8369;<?php echo number_format($item['balance'], 2); ?></div>
+										<?php if ($item['due_date'] !== ''): ?>
+											<div class="item-meta">Due: <?php echo date('M d, Y', strtotime($item['due_date'])); ?></div>
+										<?php endif; ?>
 									<?php endif; ?>
 								</td>
-								<td class="amount">&#8369;<?php echo number_format($rowTotal + $tankPayment, 2); ?></td>
+								<td class="amount">&#8369;<?php echo number_format($item['total'], 2); ?></td>
 							</tr>
 						<?php endforeach; ?>
 					</tbody>
@@ -91,14 +211,28 @@
 				<div class="line"></div>
 
 				<div class="total">
-					<p>Grand Total <span>&#8369;<?php echo number_format($grandTotal, 2); ?></span></p>
-					<p>Amount Paid <span>&#8369;<?php echo number_format($paymentStatus === 'PAID' ? $grandTotal : $amountPaid, 2); ?></span></p>
-					<p>Balance <span>&#8369;<?php echo number_format($balance, 2); ?></span></p>
+					<p class="total-emphasis">Grand Total <span class="total-value">&#8369;<?php echo number_format($grandTotal, 2); ?></span></p>
+					<p class="total-emphasis">Amount Due <span class="total-value">&#8369;<?php echo number_format($amountDue, 2); ?></span></p>
+
+					<?php if ($isRegisteredCustomer && $totalBalance > 0): ?>
+						<p>Total Paid <span>&#8369;<?php echo number_format($totalAmountPaid, 2); ?></span></p>
+						<p>Balance <span>&#8369;<?php echo number_format($totalBalance, 2); ?></span></p>
+						<?php if ($latestDueDate !== ''): ?>
+							<p>Due Date <span><?php echo date('M d, Y', strtotime($latestDueDate)); ?></span></p>
+						<?php endif; ?>
+					<?php endif; ?>
+
+					<?php if ($cashGiven > 0): ?>
+						<p class="total-emphasis">Cash Given <span class="total-value">&#8369;<?php echo number_format($cashGiven, 2); ?></span></p>
+						<p class="total-emphasis">Change <span class="total-value">&#8369;<?php echo number_format($displayChange, 2); ?></span></p>
+					<?php endif; ?>
 				</div>
 
 				<div class="footer">
 					<p>Thank you for your purchase!</p>
-					<?php if ($dueDate !== ''): ?><p>Due date: <?php echo date('M-d-Y', strtotime($dueDate)); ?></p><?php endif; ?>
+					<?php if ($saleNotes !== ''): ?><p>Note: <?php echo htmlspecialchars($saleNotes); ?></p><?php endif; ?>
+					<?php if ($latestDueDate !== ''): ?><p>Latest due date: <?php echo date('M d, Y', strtotime($latestDueDate)); ?></p><?php endif; ?>
+					<p>Please keep this receipt for your records.</p>
 				</div>
 			</div>
 		</div>
@@ -107,98 +241,130 @@
 
 <div class="receipt-page noPrint">
 	<div class="receipt-page-actions receipt-floating-actions">
-		<form class="form new-form receipt-form-actions" method="POST" id="saleReceiptSaveForm">
-			<input type="hidden" name="mainmenu" value="sale_invoice" />
-			<input type="hidden" name="previousmenu" value="<?php echo htmlspecialchars($previousMenu); ?>" />
-			<input type="hidden" name="sales_type" value="<?php echo htmlspecialchars($salesType); ?>" />
-			<input type="hidden" name="sale_date" value="<?php echo htmlspecialchars($saleDate); ?>" />
-			<input type="hidden" name="customer_name" value="<?php echo htmlspecialchars($customerName, ENT_QUOTES); ?>" />
-			<input type="hidden" name="customer_address" value="<?php echo htmlspecialchars($customerAddress, ENT_QUOTES); ?>" />
-			<input type="hidden" name="customer_google_map" value="<?php echo htmlspecialchars($customerGoogleMap, ENT_QUOTES); ?>" />
-			<input type="hidden" name="sale_notes" value="<?php echo htmlspecialchars($saleNotes, ENT_QUOTES); ?>" />
-			<input type="hidden" name="payment_status" value="<?php echo htmlspecialchars($paymentStatus); ?>" />
-			<input type="hidden" name="amount_paid" value="<?php echo htmlspecialchars((string) $amountPaid); ?>" />
-			<input type="hidden" name="due_date" value="<?php echo htmlspecialchars($dueDate); ?>" />
-			<input type="hidden" name="product_name" value="<?php echo htmlspecialchars(serialize($productNames), ENT_QUOTES); ?>" />
-			<input type="hidden" name="product_id" value="<?php echo htmlspecialchars(serialize($productIds), ENT_QUOTES); ?>" />
-			<input type="hidden" name="product_quantity" value="<?php echo htmlspecialchars(serialize($productQuantities), ENT_QUOTES); ?>" />
-			<input type="hidden" name="product_price" value="<?php echo htmlspecialchars(serialize($productPrices), ENT_QUOTES); ?>" />
-			<input type="hidden" name="total_price" value="<?php echo htmlspecialchars(serialize($totalPrices), ENT_QUOTES); ?>" />
-			<input type="hidden" name="sale_unit" value="<?php echo htmlspecialchars(serialize($saleUnits), ENT_QUOTES); ?>" />
-			<input type="hidden" name="kg_conversion_qty" value="<?php echo htmlspecialchars(serialize($kgConversionQuantities), ENT_QUOTES); ?>" />
-			<input type="hidden" name="lpg_transaction_type" value="<?php echo htmlspecialchars(serialize($lpgTransactionTypes), ENT_QUOTES); ?>" />
-			<input type="hidden" name="lpg_tank_condition" value="<?php echo htmlspecialchars(serialize($lpgTankConditions), ENT_QUOTES); ?>" />
-			<input type="hidden" name="lpg_tank_payment" value="<?php echo htmlspecialchars(serialize($lpgTankPayments), ENT_QUOTES); ?>" />
-			<input type="hidden" id="saleReceiptSaveAction" value="Save Sale" />
-			<button class="btn btn-success receipt-action-btn" type="submit" name="saveTransaction" value="Save Sale">Save Sale</button>
-			<button class="btn btn-primary receipt-action-btn" type="button" onclick="saveAndPrintSaleReceipt(this);">Print & Save</button>
-			<button onclick="history.go(-1)" class="btn btn-light receipt-action-btn" type="button">Edit</button>
-			<div class="receipt-footer-metrics">
-				<div class="receipt-footer-metric">
-					<p class="metric-label">Item Count</p>
-					<div class="totalprice"><?php echo $receiptItemCount; ?></div>
+		<?php if ($previousMenu === 'sell_product_others' || $previousMenu === 'sell_product_lpg'): ?>
+			<form class="form new-form receipt-form-actions" method="POST" id="saleReceiptSaveForm">
+				<?php foreach ($_POST as $key => $value): ?>
+					<?php if (is_array($value)): ?>
+						<?php foreach ($value as $val): ?>
+							<input type="hidden" name="<?php echo htmlspecialchars($key); ?>[]" value="<?php echo htmlspecialchars((string) $val); ?>" />
+						<?php endforeach; ?>
+					<?php else: ?>
+						<input type="hidden" name="<?php echo htmlspecialchars($key); ?>" value="<?php echo htmlspecialchars((string) $value); ?>" />
+					<?php endif; ?>
+				<?php endforeach; ?>
+				<input type="hidden" name="mainmenu" value="sale_invoice" />
+				<input type="hidden" name="previousmenu" value="<?php echo htmlspecialchars($previousMenu); ?>" />
+				<input type="hidden" id="saleReceiptSaveAction" value="Save Transaction" />
+				<button class="btn btn-success receipt-action-btn" type="button" onclick="saveAndPrintSaleReceipt(this);">Print Receipt</button>
+				<button class="btn btn-outline-secondary receipt-action-btn" type="button" onclick="history.go(-1)">Edit</button>
+				<button onclick="history.go(-1)" class="btn btn-light receipt-action-btn" type="button">Cancel</button>
+				<div class="receipt-footer-metrics">
+					<div class="receipt-footer-metric">
+						<p class="metric-label">Item Count</p>
+						<div class="totalprice"><?php echo $receiptItemCount; ?></div>
+					</div>
+					<div class="receipt-footer-metric">
+						<p class="metric-label">Total Sale</p>
+						<div class="totalprice">&#8369;<?php echo number_format($grandTotal, 2); ?></div>
+					</div>
 				</div>
-				<div class="receipt-footer-metric">
-					<p class="metric-label">Total Sale</p>
-					<div class="totalprice">&#8369;<?php echo number_format($grandTotal, 2); ?></div>
+			</form>
+		<?php else: ?>
+			<div class="receipt-form-actions">
+				<button onclick="history.go(-1)" class="btn btn-light receipt-action-btn" type="button">Back</button>
+				<div class="receipt-footer-metrics">
+					<div class="receipt-footer-metric">
+						<p class="metric-label">Item Count</p>
+						<div class="totalprice"><?php echo $receiptItemCount; ?></div>
+					</div>
+					<div class="receipt-footer-metric">
+						<p class="metric-label">Total Sale</p>
+						<div class="totalprice">&#8369;<?php echo number_format($grandTotal, 2); ?></div>
+					</div>
 				</div>
 			</div>
-		</form>
+		<?php endif; ?>
 	</div>
 </div>
 
-<script>
-	let saleReceiptSaved = false;
-	let saleReceiptSaving = false;
-	let saleReceiptAwaitingSave = false;
-	const salesListUrl = '<?php echo $server; ?>?mainmenu=sales_list';
+<?php if ($previousMenu === 'sell_product_others' || $previousMenu === 'sell_product_lpg'): ?>
+	<script>
+		let saleReceiptSaved = false;
+		let saleReceiptSaving = false;
+		let saleReceiptAwaitingSave = false;
+		let saleReceiptShouldRedirect = false;
+		const sellProductUrl = '<?php echo $server; ?>?mainmenu=sell_product_others';
 
-	function saveAndPrintSaleReceipt(button) {
-		const saveForm = document.getElementById('saleReceiptSaveForm');
-		if (!saveForm) {
-			window.print();
-			return;
-		}
-		if (saleReceiptSaved) {
-			window.print();
-			window.setTimeout(function () { window.location.href = salesListUrl; }, 800);
-			return;
-		}
-		if (saleReceiptSaving) {
-			return;
-		}
-		saleReceiptSaving = true;
-		document.querySelectorAll('button').forEach(function(actionButton) {
-			if (actionButton.type !== 'button' && actionButton.type !== 'submit') {
+		function redirectToSellProduct() {
+			if (!saleReceiptShouldRedirect) {
 				return;
 			}
-			actionButton.disabled = true;
-		});
 
-		let saveFrame = document.getElementById('saleReceiptSaveFrame');
-		if (!saveFrame) {
-			saveFrame = document.createElement('iframe');
-			saveFrame.id = 'saleReceiptSaveFrame';
-			saveFrame.name = 'saleReceiptSaveFrame';
-			saveFrame.style.display = 'none';
-			document.body.appendChild(saveFrame);
+			saleReceiptShouldRedirect = false;
+			window.location.href = sellProductUrl;
 		}
-		saveFrame.onload = function () {
-			if (!saleReceiptAwaitingSave) {
+
+		window.addEventListener('afterprint', redirectToSellProduct);
+
+		function saveAndPrintSaleReceipt(button) {
+			const saveForm = document.getElementById('saleReceiptSaveForm');
+			if (!saveForm) {
+				window.print();
 				return;
 			}
-			saleReceiptAwaitingSave = false;
-			saleReceiptSaved = true;
-			saleReceiptSaving = false;
-			window.print();
-			window.setTimeout(function () { window.location.href = salesListUrl; }, 800);
-		};
-		saveForm.target = 'saleReceiptSaveFrame';
-		const saveAction = document.getElementById('saleReceiptSaveAction');
-		if (saveAction) {
-			saveAction.setAttribute('name', 'saveTransaction');
+
+			if (saleReceiptSaved) {
+				saleReceiptShouldRedirect = true;
+				window.print();
+				window.setTimeout(redirectToSellProduct, 800);
+				return;
+			}
+
+			if (saleReceiptSaving) {
+				return;
+			}
+
+			saleReceiptSaving = true;
+			const printButtons = document.querySelectorAll('button[onclick*="saveAndPrintSaleReceipt"]');
+			printButtons.forEach(function (printButton) {
+				printButton.disabled = true;
+				printButton.dataset.originalText = printButton.textContent;
+				printButton.textContent = 'Saving...';
+			});
+
+			let saveFrame = document.getElementById('saleReceiptSaveFrame');
+			if (!saveFrame) {
+				saveFrame = document.createElement('iframe');
+				saveFrame.id = 'saleReceiptSaveFrame';
+				saveFrame.name = 'saleReceiptSaveFrame';
+				saveFrame.style.display = 'none';
+				document.body.appendChild(saveFrame);
+			}
+
+			saveFrame.onload = function () {
+				if (!saleReceiptAwaitingSave) {
+					return;
+				}
+
+				saleReceiptAwaitingSave = false;
+				saleReceiptSaved = true;
+				saleReceiptSaving = false;
+				printButtons.forEach(function (printButton) {
+					printButton.disabled = false;
+					printButton.textContent = printButton.dataset.originalText || 'Print Receipt';
+				});
+				saleReceiptShouldRedirect = true;
+				window.print();
+				window.setTimeout(redirectToSellProduct, 800);
+			};
+
+			saveForm.target = 'saleReceiptSaveFrame';
+			const saveAction = document.getElementById('saleReceiptSaveAction');
+			if (saveAction) {
+				saveAction.setAttribute('name', 'saveTransaction');
+			}
+			saleReceiptAwaitingSave = true;
+			saveForm.submit();
 		}
-		saleReceiptAwaitingSave = true;
-		saveForm.submit();
-	}
-</script>
+	</script>
+<?php endif; ?>

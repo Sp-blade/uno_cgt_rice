@@ -44,7 +44,7 @@
 					<?php if ($salesList && $salesList->num_rows > 0): ?>
 						<?php while ($sale = $salesList->fetch_assoc()): ?>
 							<tr>
-								<td><?php echo date('M-d-Y', strtotime($sale['SaleDate'])); ?></td>
+								<td><?php echo junkshop_format_datetime($sale['SaleDate']); ?></td>
 								<td><?php echo $sale['DeliveryNo']; ?></td>
 								<td><?php echo htmlspecialchars($sale['CustomerName']); ?></td>
 								<td>

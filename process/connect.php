@@ -66,6 +66,111 @@
 		}
 	}
 
+	if (!function_exists('junkshop_normalize_base_unit')) {
+		function junkshop_normalize_base_unit($value) {
+			$unit = strtolower(trim((string) $value));
+			$allowed = ['pc', 'kg', 'sack', 'tray', 'pack', 'tank'];
+			return in_array($unit, $allowed, true) ? $unit : 'pc';
+		}
+	}
+
+	if (!function_exists('junkshop_unit_label')) {
+		function junkshop_unit_label($unit) {
+			$labels = [
+				'pc' => 'Pcs',
+				'kg' => 'KG',
+				'sack' => 'Sack',
+				'tray' => 'Tray',
+				'pack' => 'Pack',
+				'tank' => 'Tank',
+			];
+			$normalized = junkshop_normalize_base_unit($unit);
+			return $labels[$normalized] ?? strtoupper($normalized);
+		}
+	}
+
+	if (!function_exists('junkshop_get_alternate_sale_unit')) {
+		function junkshop_get_alternate_sale_unit($baseUnit) {
+			switch (junkshop_normalize_base_unit($baseUnit)) {
+				case 'sack':
+					return 'kg';
+				case 'tray':
+					return 'pc';
+				case 'pc':
+					return 'kg';
+				default:
+					return null;
+			}
+		}
+	}
+
+	if (!function_exists('junkshop_can_convert_units')) {
+		function junkshop_can_convert_units($baseUnit, $canConvert, $equivQty) {
+			return (int) $canConvert === 1
+				&& (float) $equivQty > 0
+				&& junkshop_get_alternate_sale_unit($baseUnit) !== null;
+		}
+	}
+
+	if (!function_exists('junkshop_sale_qty_to_base')) {
+		function junkshop_sale_qty_to_base($quantity, $saleUnit, $baseUnit, $equivQty) {
+			$quantity = (float) $quantity;
+			$baseUnit = junkshop_normalize_base_unit($baseUnit);
+			$saleUnit = junkshop_normalize_base_unit($saleUnit);
+			$equivQty = (float) $equivQty;
+
+			if ($saleUnit === $baseUnit || $equivQty <= 0) {
+				return $quantity;
+			}
+
+			$alternateUnit = junkshop_get_alternate_sale_unit($baseUnit);
+			if ($alternateUnit === null || $saleUnit !== $alternateUnit) {
+				return $quantity;
+			}
+
+			if ($baseUnit === 'pc' && $saleUnit === 'kg') {
+				return $quantity * $equivQty;
+			}
+
+			return $quantity / $equivQty;
+		}
+	}
+
+	if (!function_exists('junkshop_base_qty_to_alternate')) {
+		function junkshop_base_qty_to_alternate($quantity, $baseUnit, $equivQty) {
+			$quantity = (float) $quantity;
+			$baseUnit = junkshop_normalize_base_unit($baseUnit);
+			$equivQty = (float) $equivQty;
+
+			if ($equivQty <= 0 || !junkshop_can_convert_units($baseUnit, 1, $equivQty)) {
+				return null;
+			}
+
+			if ($baseUnit === 'pc') {
+				return $quantity / $equivQty;
+			}
+
+			return $quantity * $equivQty;
+		}
+	}
+
+	if (!function_exists('junkshop_conversion_label')) {
+		function junkshop_conversion_label($baseUnit, $equivQty) {
+			$baseUnit = junkshop_normalize_base_unit($baseUnit);
+			$equivQty = (float) $equivQty;
+			if ($equivQty <= 0) {
+				return '';
+			}
+
+			$alternateUnit = junkshop_get_alternate_sale_unit($baseUnit);
+			if ($alternateUnit === null) {
+				return '';
+			}
+
+			return '1 ' . junkshop_unit_label($baseUnit) . ' = ' . number_format($equivQty, 2) . ' ' . junkshop_unit_label($alternateUnit);
+		}
+	}
+
 	$productsTableExists = false;
 	$purchasesTableExists = false;
 	$createProductsTableSql = "CREATE TABLE IF NOT EXISTS products (
@@ -75,6 +180,7 @@
 		ProductBaseUnit varchar(20) NOT NULL DEFAULT 'pc',
 		ProductPrice decimal(12,2) NOT NULL DEFAULT 0.00,
 		SellingPrice decimal(12,2) NOT NULL DEFAULT 0.00,
+		AlternateSellingPrice decimal(12,2) NOT NULL DEFAULT 0.00,
 		StockLimit decimal(12,2) NOT NULL DEFAULT 0.00,
 		CanConvertToKg tinyint(1) NOT NULL DEFAULT 0,
 		KgEquivalentQty decimal(12,2) NOT NULL DEFAULT 0.00,
@@ -97,9 +203,13 @@
 	if (!$productSellingPriceColumnCheck || $productSellingPriceColumnCheck->num_rows === 0) {
 		$connectDB->query("ALTER TABLE products ADD COLUMN SellingPrice decimal(12,2) NOT NULL DEFAULT 0.00 AFTER ProductPrice");
 	}
+	$productAlternateSellingPriceColumnCheck = $connectDB->query("SHOW COLUMNS FROM products LIKE 'AlternateSellingPrice'");
+	if (!$productAlternateSellingPriceColumnCheck || $productAlternateSellingPriceColumnCheck->num_rows === 0) {
+		$connectDB->query("ALTER TABLE products ADD COLUMN AlternateSellingPrice decimal(12,2) NOT NULL DEFAULT 0.00 AFTER SellingPrice");
+	}
 	$productStockLimitColumnCheck = $connectDB->query("SHOW COLUMNS FROM products LIKE 'StockLimit'");
 	if (!$productStockLimitColumnCheck || $productStockLimitColumnCheck->num_rows === 0) {
-		$connectDB->query("ALTER TABLE products ADD COLUMN StockLimit decimal(12,2) NOT NULL DEFAULT 0.00 AFTER SellingPrice");
+		$connectDB->query("ALTER TABLE products ADD COLUMN StockLimit decimal(12,2) NOT NULL DEFAULT 0.00 AFTER AlternateSellingPrice");
 	}
 	$productCanConvertColumnCheck = $connectDB->query("SHOW COLUMNS FROM products LIKE 'CanConvertToKg'");
 	if (!$productCanConvertColumnCheck || $productCanConvertColumnCheck->num_rows === 0) {
@@ -201,7 +311,7 @@
 
 	$createSalesTableSql = "CREATE TABLE IF NOT EXISTS sales (
 		ID int(11) NOT NULL AUTO_INCREMENT,
-		SaleDate date NOT NULL,
+		SaleDate datetime NOT NULL,
 		DeliveryNo int(11) NOT NULL,
 		CustomerName varchar(255) NOT NULL,
 		Product_ID int(11) NOT NULL DEFAULT 0,
@@ -255,6 +365,10 @@
 		if (!$salesColumnCheck || $salesColumnCheck->num_rows === 0) {
 			$connectDB->query($alterSql);
 		}
+	}
+	$salesDateColumnCheck = $connectDB->query("SHOW COLUMNS FROM sales LIKE 'SaleDate'");
+	if ($salesDateColumnCheck && ($salesDateColumn = $salesDateColumnCheck->fetch_assoc()) && stripos((string) ($salesDateColumn['Type'] ?? ''), 'datetime') === false) {
+		$connectDB->query("ALTER TABLE sales MODIFY SaleDate datetime NOT NULL");
 	}
 
 	$createInventoryBatchesTableSql = "CREATE TABLE IF NOT EXISTS inventory_batches (
@@ -315,7 +429,7 @@
 		ID int(11) NOT NULL AUTO_INCREMENT,
 		CustomerName varchar(255) NOT NULL,
 		DeliveryNo int(11) NOT NULL DEFAULT 0,
-		SaleDate date NOT NULL,
+		SaleDate datetime NOT NULL,
 		DueDate date DEFAULT NULL,
 		TotalAmount decimal(12,2) NOT NULL DEFAULT 0.00,
 		AmountPaid decimal(12,2) NOT NULL DEFAULT 0.00,
@@ -329,6 +443,10 @@
 		KEY PaymentStatus (PaymentStatus)
 	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci";
 	$connectDB->query($createCustomerAccountsTableSql);
+	$customerAccountSaleDateColumnCheck = $connectDB->query("SHOW COLUMNS FROM customer_accounts LIKE 'SaleDate'");
+	if ($customerAccountSaleDateColumnCheck && ($customerAccountSaleDateColumn = $customerAccountSaleDateColumnCheck->fetch_assoc()) && stripos((string) ($customerAccountSaleDateColumn['Type'] ?? ''), 'datetime') === false) {
+		$connectDB->query("ALTER TABLE customer_accounts MODIFY SaleDate datetime NOT NULL");
+	}
 
 	$createCustomersTableSql = "CREATE TABLE IF NOT EXISTS customers (
 		ID int(11) NOT NULL AUTO_INCREMENT,

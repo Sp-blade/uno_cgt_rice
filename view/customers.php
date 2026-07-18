@@ -19,6 +19,7 @@
 		GROUP BY c.CustomerName, c.Address, c.GoogleMap
 		ORDER BY c.CustomerName ASC
 	");
+	$customerStatus = isset($_GET['customer_status']) ? trim((string) $_GET['customer_status']) : '';
 ?>
 
 <div class="dashboard-card">
@@ -28,6 +29,30 @@
 			<h3>Customer Details</h3>
 		</div>
 	</div>
+
+	<?php if ($customerStatus === 'saved'): ?>
+		<div class="alert alert-success margin-top" role="alert">Customer saved successfully.</div>
+	<?php elseif ($customerStatus === 'missing'): ?>
+		<div class="alert alert-danger margin-top" role="alert">Customer full name is required.</div>
+	<?php endif; ?>
+
+	<form method="POST" action="?mainmenu=save_customer" class="row custom-row margin-top">
+		<div class="col-md-3">
+			<label for="customer_name">Customer Full Name</label>
+			<input type="text" class="form-control" id="customer_name" name="customer_name" required />
+		</div>
+		<div class="col-md-3">
+			<label for="customer_address">Address</label>
+			<input type="text" class="form-control" id="customer_address" name="customer_address" />
+		</div>
+		<div class="col-md-4">
+			<label for="customer_google_map">Google Map</label>
+			<input type="url" class="form-control" id="customer_google_map" name="customer_google_map" placeholder="https://maps.google.com/..." />
+		</div>
+		<div class="col-md-2 d-flex align-items-end">
+			<button type="submit" class="btn btn-success w-100">Add Customer</button>
+		</div>
+	</form>
 
 	<form method="GET" class="list-toolbar">
 		<input type="hidden" name="mainmenu" value="customers" />

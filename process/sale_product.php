@@ -46,8 +46,7 @@
 		}
 		$rowTotal = isset($totalPrices[$index]) ? (float) $totalPrices[$index] : ($quantity * $price);
 		$tankType = strtoupper(trim((string) ($lpgTransactionTypes[$index] ?? 'NONE')));
-		$tankPayment = $tankType === 'SOLD' ? (float) ($lpgTankPayments[$index] ?? 0) : 0;
-		$grandTotal += $rowTotal + $tankPayment;
+		$grandTotal += $rowTotal;
 	}
 
 	$balance = max($grandTotal - ($paymentStatus === 'PAID' ? $grandTotal : $amountPaid), 0);
