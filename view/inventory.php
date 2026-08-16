@@ -31,6 +31,7 @@
 		FROM products p
 		LEFT JOIN inventory_batches b ON b.Product_ID = p.Product_ID
 		WHERE p.IsActive = 1
+			AND UPPER(COALESCE(p.ProductType, '')) <> 'LPG TANK'
 		GROUP BY category_name
 		ORDER BY category_name ASC
 	");
