@@ -1,10 +1,24 @@
 <?php
-	$productName = isset($_GET['product_name']) ? trim($_GET['product_name']) : '';
+	$productId = (int) ($_GET['product_id'] ?? 0);
+	$productName = isset($_GET['product_name']) ? trim((string) $_GET['product_name']) : '';
 	$returnTo = isset($_GET['return_to']) ? $_GET['return_to'] : '?';
 	$todayDate = date('Y-m-d');
 	$fromDate = isset($_GET['from_date']) && $_GET['from_date'] !== '' ? $_GET['from_date'] : $todayDate;
 	$toDate = isset($_GET['to_date']) && $_GET['to_date'] !== '' ? $_GET['to_date'] : $todayDate;
-	$safeProductName = mysqli_real_escape_string($connectDB, $productName);
+
+	if ($productId > 0) {
+		$productResult = $connectDB->query("SELECT ProductName FROM products WHERE Product_ID = '$productId' LIMIT 1");
+		if ($productResult && ($productRow = $productResult->fetch_assoc())) {
+			$productName = trim((string) ($productRow['ProductName'] ?? $productName));
+		}
+		$productClause = "Product_ID = '$productId'";
+	} elseif ($productName !== '') {
+		$safeProductName = mysqli_real_escape_string($connectDB, $productName);
+		$productClause = "ProductName = '$safeProductName'";
+	} else {
+		$productClause = '1 = 0';
+	}
+
 	$salesByProduct = $connectDB->query("
 		SELECT 
 			SaleDate,
@@ -14,7 +28,7 @@
 			AVG(Less) AS average_less,
 			SUM(TotalSalePrice) AS total_sale_price
 		FROM sales
-		WHERE ProductName = '$safeProductName'
+		WHERE ($productClause)
 		AND SaleDate BETWEEN '$fromDate' AND '$toDate'
 		GROUP BY SaleDate
 		ORDER BY SaleDate DESC
@@ -24,7 +38,10 @@
 ?>
 
 <div class="container-fluid" style="padding-bottom: 80px;">
-	<h2>Sold/Delivery: <?php echo htmlspecialchars($productName); ?></h2>
+	<h2>Sold/Delivery: <?php echo htmlspecialchars($productName !== '' ? $productName : 'Product'); ?></h2>
+	<?php if ($productId > 0): ?>
+		<p class="text-muted mb-1">Product ID: <?php echo (int) $productId; ?></p>
+	<?php endif; ?>
 	<p><strong>Date Range:</strong> <?php echo date('M d, Y', strtotime($fromDate)); ?> to <?php echo date('M d, Y', strtotime($toDate)); ?></p>
 
 	<div class="table-card margin-top">

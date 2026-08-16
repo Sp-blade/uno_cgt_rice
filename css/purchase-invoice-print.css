@@ -1,0 +1,62 @@
+@page {
+	size: auto;
+	margin: 12mm;
+}
+
+@media print {
+	html:has(.purchase-invoice-printable),
+	body:has(.purchase-invoice-printable) {
+		width: auto !important;
+		margin: 0 !important;
+		padding: 0 !important;
+		background: #fff !important;
+	}
+
+	body:has(.purchase-invoice-printable) * {
+		visibility: hidden !important;
+	}
+
+	.purchase-invoice-printable,
+	.purchase-invoice-printable * {
+		visibility: visible !important;
+	}
+
+	.purchase-invoice-printable {
+		position: absolute;
+		left: 0;
+		top: 0;
+		width: 100% !important;
+		max-width: none !important;
+		margin: 0 !important;
+		padding: 0 !important;
+		display: block !important;
+	}
+
+	.purchase-invoice-printable .receipt-top-card,
+	.purchase-invoice-printable .receipt-page-actions,
+	.purchase-invoice-printable .receipt-floating-actions,
+	.purchase-invoice-printable .noPrint {
+		display: none !important;
+	}
+
+	.purchase-invoice-printable .receipt-screen-card,
+	.purchase-invoice-printable .receipt-preview-shell,
+	.purchase-invoice-printable .purchase-invoice-preview-shell {
+		background: #fff !important;
+		border: 0 !important;
+		box-shadow: none !important;
+		border-radius: 0 !important;
+		padding: 0 !important;
+		max-width: none !important;
+		width: 100% !important;
+	}
+
+	.purchase-invoice-printable .delivery-invoice {
+		box-shadow: none !important;
+		border-radius: 0 !important;
+		border: 0 !important;
+		max-width: none !important;
+		padding: 0 !important;
+		width: 100% !important;
+	}
+}

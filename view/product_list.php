@@ -1,6 +1,7 @@
 <?php
 	$searchProduct = isset($_GET['searchProduct']) ? trim((string) $_GET['searchProduct']) : '';
 	$safeSearchProduct = mysqli_real_escape_string($connectDB, $searchProduct);
+	$hideSyncedTankProductsSql = "UPPER(COALESCE(p.ProductType, '')) <> 'LPG TANK'";
 
 	$allProductSql = "
 		SELECT
@@ -10,7 +11,9 @@
 		LEFT JOIN products parent ON parent.Product_ID = p.ParentProduct_ID
 	";
 	if ($safeSearchProduct !== '') {
-		$allProductSql .= " WHERE p.ProductName LIKE '%$safeSearchProduct%' OR p.ProductType LIKE '%$safeSearchProduct%' OR p.ProductBaseUnit LIKE '%$safeSearchProduct%' OR parent.ProductName LIKE '%$safeSearchProduct%'";
+		$allProductSql .= " WHERE ($hideSyncedTankProductsSql) AND (p.ProductName LIKE '%$safeSearchProduct%' OR p.ProductType LIKE '%$safeSearchProduct%' OR p.ProductBaseUnit LIKE '%$safeSearchProduct%' OR parent.ProductName LIKE '%$safeSearchProduct%')";
+	} else {
+		$allProductSql .= " WHERE $hideSyncedTankProductsSql";
 	}
 	$allProductSql .= " ORDER BY COALESCE(NULLIF(p.ParentProduct_ID, 0), p.Product_ID) ASC, p.IsSubProduct ASC, p.ProductName ASC";
 	$productListResult = $connectDB->query($allProductSql);
@@ -26,9 +29,14 @@
 			$row['ProductPrice'] = (float) ($row['ProductPrice'] ?? 0);
 			$row['SellingPrice'] = (float) ($row['SellingPrice'] ?? 0);
 			$row['AlternateSellingPrice'] = (float) ($row['AlternateSellingPrice'] ?? 0);
+			$row['LpgRefillPrice'] = (float) ($row['LpgRefillPrice'] ?? 0);
+			$row['LpgNewTankPrice'] = (float) ($row['LpgNewTankPrice'] ?? 0);
+			$row['IsLpgProduct'] = junkshop_product_is_lpg($connectDB, (int) ($row['Product_ID'] ?? 0), $row['ProductName']);
 			$row['StockLimit'] = (float) ($row['StockLimit'] ?? 0);
 			$row['CanConvertToKg'] = (int) ($row['CanConvertToKg'] ?? 0);
 			$row['KgEquivalentQty'] = (float) ($row['KgEquivalentQty'] ?? 0);
+			$alternateSaleUnit = trim((string) ($row['AlternateSaleUnit'] ?? ''));
+			$row['AlternateSaleUnit'] = $alternateSaleUnit !== '' ? junkshop_normalize_base_unit($alternateSaleUnit) : '';
 			$row['ParentProduct_ID'] = (int) ($row['ParentProduct_ID'] ?? 0);
 			$row['IsSubProduct'] = (int) ($row['IsSubProduct'] ?? 0);
 			$row['IsActive'] = (int) ($row['IsActive'] ?? 1);
@@ -43,12 +51,12 @@
 			$parentProductOptions[] = [
 				'id' => (int) ($row['Product_ID'] ?? 0),
 				'name' => trim((string) ($row['ProductName'] ?? '')),
-				'price' => (float) ($row['ProductPrice'] ?? 0),
 			];
 		}
 	}
 
 	$productTypeSuggestions = ['Rice', 'LPG', 'Frozen Foods', 'Eggs'];
+	$baseUnitOptions = junkshop_base_unit_options();
 	$productTypeResult = $connectDB->query("SELECT DISTINCT ProductType FROM products WHERE ProductType <> '' ORDER BY ProductType ASC");
 	if ($productTypeResult && $productTypeResult->num_rows > 0) {
 		while ($row = $productTypeResult->fetch_assoc()) {
@@ -60,7 +68,14 @@
 	}
 
 	$activeExportProducts = [];
-	$activeExportResult = $connectDB->query("SELECT * FROM products WHERE IsActive = 1 AND COALESCE(IsSubProduct, 0) = 0 ORDER BY ProductType ASC, ProductName ASC");
+	$activeExportResult = $connectDB->query("
+		SELECT *
+		FROM products
+		WHERE IsActive = 1
+			AND COALESCE(IsSubProduct, 0) = 0
+			AND UPPER(COALESCE(ProductType, '')) <> 'LPG TANK'
+		ORDER BY ProductType ASC, ProductName ASC
+	");
 	if ($activeExportResult && $activeExportResult->num_rows > 0) {
 		while ($row = $activeExportResult->fetch_assoc()) {
 			$productName = trim((string) ($row['ProductName'] ?? ''));
@@ -70,14 +85,32 @@
 
 			$productType = trim((string) ($row['ProductType'] ?? ''));
 			$productUnit = junkshop_normalize_base_unit($row['ProductBaseUnit'] ?? 'pc');
-			$productPurchasePrice = (float) ($row['ProductPrice'] ?? 0);
+			$isLpgProduct = junkshop_product_is_lpg($connectDB, (int) ($row['Product_ID'] ?? 0), $productName);
+			$baseSellingPrice = $isLpgProduct
+				? ((float) ($row['LpgRefillPrice'] ?? 0) > 0 ? (float) $row['LpgRefillPrice'] : (float) ($row['SellingPrice'] ?? 0))
+				: (float) ($row['SellingPrice'] ?? 0);
+			$canConvert = junkshop_can_convert_units(
+				$productUnit,
+				(int) ($row['CanConvertToKg'] ?? 0),
+				(float) ($row['KgEquivalentQty'] ?? 0),
+				trim((string) ($row['AlternateSaleUnit'] ?? ''))
+			);
+			$alternateUnit = junkshop_get_alternate_sale_unit($productUnit, trim((string) ($row['AlternateSaleUnit'] ?? '')));
+			$equivQty = (float) ($row['KgEquivalentQty'] ?? 0);
+			$posterQty = rtrim(rtrim(number_format($equivQty, 2, '.', ''), '0'), '.');
+			$unitDetail = '1 ' . junkshop_unit_label($productUnit);
+			if ($canConvert && $alternateUnit !== null && $posterQty !== '') {
+				$unitDetail .= ' / ' . $posterQty . ' ' . junkshop_unit_label($alternateUnit);
+			}
 
 			$activeExportProducts[] = [
 				'id' => (int) ($row['Product_ID'] ?? 0),
 				'name' => $productName,
 				'type' => $productType !== '' ? $productType : 'Products',
 				'unit' => $productUnit,
-				'price' => round($productPurchasePrice, 2),
+				'unit_label' => junkshop_unit_label($productUnit),
+				'unit_detail' => $unitDetail,
+				'price' => round($baseSellingPrice, 2),
 			];
 		}
 	}
@@ -135,10 +168,6 @@
 			<h3>Product List</h3>
 		</div>
 		<div class="d-flex flex-wrap justify-content-end gap-2">
-			<button type="button" class="btn btn-outline-secondary" onclick="printPlainProductPriceList()">
-				<i class="bi bi-printer"></i>
-				<span>Print Plain List</span>
-			</button>
 			<button type="button" class="btn btn-primary" onclick="downloadStyledProductPriceListJpg()">
 				<i class="bi bi-image"></i>
 				<span>Download JPG Pages</span>
@@ -163,9 +192,8 @@
 						<th>Product Name</th>
 						<th>Type / Category</th>
 						<th>Base Unit</th>
-						<th>Purchase Price</th>
-						<th>Base Price</th>
-						<th>Alternate Price</th>
+						<th>Base Selling Price</th>
+						<th>Alternate / LPG Price</th>
 						<th>Stock Limit (Base Unit)</th>
 						<th>Unit Conversion</th>
 						<th class="text-center">Action</th>
@@ -175,10 +203,27 @@
 				<tbody>
 					<?php if (count($products) === 0): ?>
 						<tr>
-							<td colspan="12" class="empty-state">No products matched your search.</td>
+							<td colspan="11" class="empty-state">No products matched your search.</td>
 						</tr>
 					<?php else: ?>
 						<?php foreach ($products as $index => $Product): ?>
+							<?php
+								$alternateUnitForProduct = junkshop_get_alternate_sale_unit($Product['ProductBaseUnit'], $Product['AlternateSaleUnit']);
+								$posterBaseSellingPrice = !empty($Product['IsLpgProduct'])
+									? ($Product['LpgRefillPrice'] > 0 ? $Product['LpgRefillPrice'] : $Product['SellingPrice'])
+									: $Product['SellingPrice'];
+								$posterCanConvert = junkshop_can_convert_units(
+									$Product['ProductBaseUnit'],
+									$Product['CanConvertToKg'],
+									$Product['KgEquivalentQty'],
+									$Product['AlternateSaleUnit']
+								);
+								$posterQty = rtrim(rtrim(number_format($Product['KgEquivalentQty'], 2, '.', ''), '0'), '.');
+								$posterUnitDetail = '1 ' . junkshop_unit_label($Product['ProductBaseUnit']);
+								if ($posterCanConvert && $alternateUnitForProduct !== null && $posterQty !== '') {
+									$posterUnitDetail .= ' / ' . $posterQty . ' ' . junkshop_unit_label($alternateUnitForProduct);
+								}
+							?>
 							<tr
 								class="product-list-row"
 								draggable="true"
@@ -186,9 +231,14 @@
 								data-product-name="<?php echo htmlspecialchars($Product['ProductName'], ENT_QUOTES); ?>"
 								data-product-type="<?php echo htmlspecialchars($Product['ProductType'] !== '' ? $Product['ProductType'] : 'Products', ENT_QUOTES); ?>"
 								data-product-unit="<?php echo htmlspecialchars($Product['ProductBaseUnit'], ENT_QUOTES); ?>"
-								data-product-price="<?php echo htmlspecialchars((string) round($Product['ProductPrice'], 2), ENT_QUOTES); ?>"
+								data-unit-label="<?php echo htmlspecialchars(junkshop_unit_label($Product['ProductBaseUnit']), ENT_QUOTES); ?>"
+								data-unit-detail="<?php echo htmlspecialchars($posterUnitDetail, ENT_QUOTES); ?>"
+								data-base-selling-price="<?php echo htmlspecialchars((string) round($posterBaseSellingPrice, 2), ENT_QUOTES); ?>"
 								data-selling-price="<?php echo htmlspecialchars((string) round($Product['SellingPrice'], 2), ENT_QUOTES); ?>"
 								data-alternate-selling-price="<?php echo htmlspecialchars((string) round($Product['AlternateSellingPrice'], 2), ENT_QUOTES); ?>"
+								data-lpg-refill-price="<?php echo htmlspecialchars((string) round($Product['LpgRefillPrice'] > 0 ? $Product['LpgRefillPrice'] : $Product['SellingPrice'], 2), ENT_QUOTES); ?>"
+								data-lpg-new-tank-price="<?php echo htmlspecialchars((string) round($Product['LpgNewTankPrice'] > 0 ? $Product['LpgNewTankPrice'] : $Product['SellingPrice'], 2), ENT_QUOTES); ?>"
+								data-is-lpg="<?php echo !empty($Product['IsLpgProduct']) ? '1' : '0'; ?>"
 								data-stock-limit="<?php echo htmlspecialchars((string) round($Product['StockLimit'], 2), ENT_QUOTES); ?>"
 								data-product-active="<?php echo (int) $Product['IsActive']; ?>"
 								data-product-exportable="<?php echo ($Product['IsSubProduct'] === 0) ? '1' : '0'; ?>"
@@ -210,30 +260,42 @@
 											$unitBadgeClass = 'text-bg-primary';
 										} elseif ($Product['ProductBaseUnit'] === 'tray') {
 											$unitBadgeClass = 'text-bg-warning';
+										} elseif ($Product['ProductBaseUnit'] === 'pack') {
+											$unitBadgeClass = 'text-bg-info';
+										} elseif ($Product['ProductBaseUnit'] === 'tank') {
+											$unitBadgeClass = 'text-bg-dark';
 										}
 									?>
 									<span class="badge <?php echo $unitBadgeClass; ?>">
 										<?php echo junkshop_unit_label($Product['ProductBaseUnit']); ?>
 									</span>
 								</td>
-								<td>&#8369;<?php echo number_format($Product['ProductPrice'], 2); ?></td>
 								<td>
-									<div>&#8369;<?php echo number_format($Product['SellingPrice'], 2); ?></div>
-									<small class="text-muted"><?php echo htmlspecialchars(junkshop_unit_label($Product['ProductBaseUnit'])); ?> Price</small>
+									<?php if (!empty($Product['IsLpgProduct'])): ?>
+										<div>&#8369;<?php echo number_format($Product['LpgRefillPrice'] > 0 ? $Product['LpgRefillPrice'] : $Product['SellingPrice'], 2); ?></div>
+										<small class="text-muted">Refill / Swap Out</small>
+									<?php else: ?>
+										<div>&#8369;<?php echo number_format($Product['SellingPrice'], 2); ?></div>
+										<small class="text-muted"><?php echo htmlspecialchars(junkshop_unit_label($Product['ProductBaseUnit'])); ?> Selling Price</small>
+									<?php endif; ?>
 								</td>
 								<td>
-									<?php $alternateUnitForProduct = junkshop_get_alternate_sale_unit($Product['ProductBaseUnit']); ?>
-									<?php if ($Product['CanConvertToKg'] === 1 && $Product['KgEquivalentQty'] > 0 && $alternateUnitForProduct !== null): ?>
+									<?php if (!empty($Product['IsLpgProduct'])): ?>
+										<div>&#8369;<?php echo number_format($Product['LpgNewTankPrice'] > 0 ? $Product['LpgNewTankPrice'] : $Product['SellingPrice'], 2); ?></div>
+										<small class="text-muted">New Tank with LPG</small>
+									<?php elseif ($Product['CanConvertToKg'] === 1 && $Product['KgEquivalentQty'] > 0 && $alternateUnitForProduct !== null): ?>
 										<div>&#8369;<?php echo number_format($Product['AlternateSellingPrice'], 2); ?></div>
-										<small class="text-muted"><?php echo htmlspecialchars(junkshop_unit_label($alternateUnitForProduct)); ?> Price</small>
+										<small class="text-muted"><?php echo htmlspecialchars(junkshop_unit_label($alternateUnitForProduct)); ?> Selling Price</small>
 									<?php else: ?>
 										<span class="text-muted">Not set</span>
 									<?php endif; ?>
 								</td>
 								<td><?php echo number_format($Product['StockLimit'], 2); ?> <?php echo htmlspecialchars(junkshop_unit_label($Product['ProductBaseUnit'])); ?></td>
 								<td>
-									<?php if ($Product['CanConvertToKg'] === 1 && $Product['KgEquivalentQty'] > 0): ?>
-										<span class="badge text-bg-info"><?php echo htmlspecialchars(junkshop_conversion_label($Product['ProductBaseUnit'], $Product['KgEquivalentQty'])); ?></span>
+									<?php if (!empty($Product['IsLpgProduct'])): ?>
+										<span class="text-muted">LPG tank pricing</span>
+									<?php elseif ($Product['CanConvertToKg'] === 1 && $Product['KgEquivalentQty'] > 0): ?>
+										<span class="badge text-bg-info"><?php echo htmlspecialchars(junkshop_conversion_label($Product['ProductBaseUnit'], $Product['KgEquivalentQty'], $Product['AlternateSaleUnit'])); ?></span>
 									<?php else: ?>
 										<span class="text-muted">Not set</span>
 									<?php endif; ?>
@@ -249,12 +311,15 @@
 											data-name="<?php echo htmlspecialchars($Product['ProductName']); ?>"
 											data-type="<?php echo htmlspecialchars($Product['ProductType']); ?>"
 											data-base-unit="<?php echo htmlspecialchars((string) $Product['ProductBaseUnit']); ?>"
-											data-price="<?php echo $Product['ProductPrice']; ?>"
 											data-selling-price="<?php echo $Product['SellingPrice']; ?>"
 											data-alternate-selling-price="<?php echo $Product['AlternateSellingPrice']; ?>"
 											data-stock-limit="<?php echo $Product['StockLimit']; ?>"
 											data-can-convert="<?php echo $Product['CanConvertToKg']; ?>"
 											data-kg-equivalent="<?php echo $Product['KgEquivalentQty']; ?>"
+											data-alternate-unit="<?php echo htmlspecialchars((string) $Product['AlternateSaleUnit'], ENT_QUOTES); ?>"
+											data-lpg-refill-price="<?php echo $Product['LpgRefillPrice'] > 0 ? $Product['LpgRefillPrice'] : $Product['SellingPrice']; ?>"
+											data-lpg-new-tank-price="<?php echo $Product['LpgNewTankPrice'] > 0 ? $Product['LpgNewTankPrice'] : $Product['SellingPrice']; ?>"
+											data-is-lpg="<?php echo !empty($Product['IsLpgProduct']) ? '1' : '0'; ?>"
 											data-parent-id="<?php echo (int) $Product['ParentProduct_ID']; ?>"
 											data-scope="<?php echo ($Product['IsSubProduct'] === 1) ? 'sub' : 'purchase'; ?>"
 											aria-label="Edit <?php echo htmlspecialchars($Product['ProductName']); ?>"
@@ -310,9 +375,12 @@
 			var productBaseUnit = button.attr('data-base-unit') || 'pc';
 			var canConvert = button.attr('data-can-convert') || '0';
 			var kgEquivalent = button.attr('data-kg-equivalent') || '0';
-			var productPrice = button.data('price');
+			var alternateUnit = button.attr('data-alternate-unit') || '';
 			var sellingPrice = button.attr('data-selling-price') || 0;
 			var alternateSellingPrice = button.attr('data-alternate-selling-price') || 0;
+			var lpgRefillPrice = button.attr('data-lpg-refill-price') || 0;
+			var lpgNewTankPrice = button.attr('data-lpg-new-tank-price') || 0;
+			var isLpgProduct = String(button.attr('data-is-lpg') || '0') === '1';
 			var stockLimit = button.attr('data-stock-limit') || 0;
 
 			var modal = $(this);
@@ -322,26 +390,48 @@
 			modal.find('select[name="product_base_unit"]').val(productBaseUnit);
 			modal.find('input[name="can_convert_to_kg"]').prop('checked', Number(canConvert) === 1);
 			modal.find('input[name="kg_equivalent_qty"]').val(kgEquivalent);
-			modal.find('input[name="product_price"]').val(productPrice);
+			modal.find('select[name="alternate_sale_unit"]').val(alternateUnit);
 			modal.find('input[name="selling_price"]').val(sellingPrice);
 			modal.find('input[name="alternate_selling_price"]').val(alternateSellingPrice);
+			modal.find('input[name="lpg_refill_price"]').val(lpgRefillPrice);
+			modal.find('input[name="lpg_new_tank_price"]').val(lpgNewTankPrice);
 			modal.find('input[name="stock_limit"]').val(stockLimit);
+			toggleProductLpgPricing(modal[0], productType || (isLpgProduct ? 'LPG' : ''));
 			toggleProductConversionFields(modal[0]);
 		});
 
 		$('#addNewProduct').on('show.bs.modal', function () {
 			var modal = $(this);
-			modal.find('input[name="product_price"]').val('');
 			modal.find('input[name="selling_price"]').val('');
 			modal.find('input[name="alternate_selling_price"]').val('');
+			modal.find('input[name="lpg_refill_price"]').val('');
+			modal.find('input[name="lpg_new_tank_price"]').val('');
 			modal.find('input[name="stock_limit"]').val('0');
 			modal.find('select[name="product_base_unit"]').val('pc');
+			modal.find('select[name="alternate_sale_unit"]').val('');
 			modal.find('input[name="can_convert_to_kg"]').prop('checked', false);
 			modal.find('input[name="kg_equivalent_qty"]').val('0');
+			toggleProductLpgPricing(modal[0], modal.find('input[name="product_type"]').val());
 			toggleProductConversionFields(modal[0]);
 		});
 
-		$(document).on('change', '#edit_product_base_unit, #new_product_base_unit, #edit_can_convert_to_kg, #new_can_convert_to_kg', function () {
+		$(document).on('input change', '#edit_product_type, #new_product_type', function () {
+			toggleProductLpgPricing(this.closest('.modal'), this.value);
+		});
+
+		$(document).on('submit', '#editProductDetails form, #addNewProduct form', function () {
+			var form = this;
+			var typeInput = form.querySelector('input[name="product_type"]');
+			if (typeInput && String(typeInput.value || '').trim().toUpperCase() === 'LPG') {
+				var refillInput = form.querySelector('input[name="lpg_refill_price"]');
+				var sellingInput = form.querySelector('input[name="selling_price"]');
+				if (refillInput && sellingInput) {
+					sellingInput.value = refillInput.value;
+				}
+			}
+		});
+
+		$(document).on('change', '#edit_product_base_unit, #new_product_base_unit, #edit_can_convert_to_kg, #new_can_convert_to_kg, #edit_alternate_sale_unit, #new_alternate_sale_unit', function () {
 			toggleProductConversionFields(this.closest('.modal'));
 		});
 
@@ -374,27 +464,87 @@
 	}
 
 	function getUnitLabel(unit) {
-		var labels = { pc: 'Per Pcs', kg: 'Per KG', sack: 'Per Sack', tray: 'Per Tray' };
+		var labels = { pc: 'Pcs', kg: 'KG', sack: 'Sack', tray: 'Tray', pack: 'Pack', tank: 'Tank' };
 		var normalized = String(unit || 'pc').toLowerCase();
-		return labels[normalized] || ('Per ' + normalized.toUpperCase());
+		return labels[normalized] || normalized.toUpperCase();
 	}
 
-	function getAlternateUnitLabel(baseUnit) {
-		var labels = { sack: 'KG per Sack', tray: 'Pcs per Tray', pc: 'Pcs per KG' };
-		var normalized = String(baseUnit || 'pc').toLowerCase();
-		return labels[normalized] || 'Alternate Qty';
+	function getAlternateUnitLabel(baseUnit, alternateUnit) {
+		var baseLabel = getUnitLabel(baseUnit);
+		var alternateLabel = getUnitLabel(alternateUnit);
+		if (!alternateUnit) {
+			return 'Alternate Qty';
+		}
+		if (String(baseUnit).toLowerCase() === 'pc' && String(alternateUnit).toLowerCase() === 'kg') {
+			return alternateLabel + ' per ' + baseLabel;
+		}
+		return alternateLabel + ' per ' + baseLabel;
 	}
 
 	function getBasePriceLabel(baseUnit) {
 		var normalized = String(baseUnit || 'pc').toLowerCase();
-		var labels = { pc: 'Pcs Price', kg: 'KG Price', sack: 'Sack Price', tray: 'Tray Price' };
-		return labels[normalized] || 'Base Unit Price';
+		var labels = { pc: 'Pcs Selling Price', kg: 'KG Selling Price', sack: 'Sack Selling Price', tray: 'Tray Selling Price', pack: 'Pack Selling Price', tank: 'Tank Selling Price' };
+		return labels[normalized] || 'Base Unit Selling Price';
 	}
 
-	function getAlternatePriceLabel(baseUnit) {
-		var alternateMap = { sack: 'KG Price', tray: 'Pcs Price', pc: 'KG Price' };
-		var normalized = String(baseUnit || 'pc').toLowerCase();
-		return alternateMap[normalized] || 'Alternate Unit Price';
+	function getAlternatePriceLabel(alternateUnit) {
+		return getUnitLabel(alternateUnit) + ' Selling Price';
+	}
+
+	function refreshAlternateUnitOptions(modalElement, baseUnit, selectedAlternateUnit) {
+		var alternateSelect = modalElement.querySelector('select[name="alternate_sale_unit"]');
+		if (!alternateSelect) {
+			return;
+		}
+
+		var normalizedBase = String(baseUnit || 'pc').toLowerCase();
+		var units = ['pc', 'kg', 'sack', 'tray', 'pack', 'tank'];
+		var html = '<option value="">Select unit</option>';
+		units.forEach(function (unit) {
+			if (unit === normalizedBase) {
+				return;
+			}
+			html += '<option value="' + unit + '">' + getUnitLabel(unit) + '</option>';
+		});
+		alternateSelect.innerHTML = html;
+		if (selectedAlternateUnit && selectedAlternateUnit !== normalizedBase) {
+			alternateSelect.value = selectedAlternateUnit;
+		}
+	}
+
+	function toggleProductLpgPricing(modalElement, productType) {
+		if (!modalElement) {
+			return;
+		}
+		var isLpg = String(productType || '').trim().toUpperCase() === 'LPG';
+		var lpgWrap = modalElement.querySelector('.product-lpg-pricing-wrap');
+		var standardPriceWrap = modalElement.querySelector('.product-standard-pricing-wrap');
+		var alternatePriceWrap = modalElement.querySelector('.product-alternate-price-wrap');
+		var conversionWrap = modalElement.querySelector('.product-conversion-wrap');
+		if (lpgWrap) {
+			lpgWrap.style.display = isLpg ? 'block' : 'none';
+		}
+		if (standardPriceWrap) {
+			standardPriceWrap.style.display = isLpg ? 'none' : 'block';
+		}
+		if (isLpg && conversionWrap) {
+			conversionWrap.style.display = 'none';
+		}
+		if (isLpg && alternatePriceWrap) {
+			alternatePriceWrap.style.display = 'none';
+		}
+		var refillInput = modalElement.querySelector('input[name="lpg_refill_price"]');
+		var newTankInput = modalElement.querySelector('input[name="lpg_new_tank_price"]');
+		if (refillInput) {
+			refillInput.required = isLpg;
+		}
+		if (newTankInput) {
+			newTankInput.required = isLpg;
+		}
+		var sellingInput = modalElement.querySelector('input[name="selling_price"]');
+		if (sellingInput) {
+			sellingInput.required = !isLpg;
+		}
 	}
 
 	function toggleProductConversionFields(modalElement) {
@@ -406,47 +556,83 @@
 		var conversionWrap = modalElement.querySelector('.product-conversion-wrap');
 		var conversionHint = modalElement.querySelector('.product-conversion-hint');
 		var conversionLabel = modalElement.querySelector('.product-conversion-label');
+		var alternateUnitWrap = modalElement.querySelector('.product-alternate-unit-wrap');
 		var basePriceLabel = modalElement.querySelector('.product-base-price-label');
 		var alternatePriceWrap = modalElement.querySelector('.product-alternate-price-wrap');
 		var alternatePriceLabel = modalElement.querySelector('.product-alternate-price-label');
 		var alternatePriceInput = modalElement.querySelector('input[name="alternate_selling_price"]');
+		var alternateUnitSelect = modalElement.querySelector('select[name="alternate_sale_unit"]');
 		var convertCheckbox = modalElement.querySelector('input[name="can_convert_to_kg"]');
+		var conversionQtyWrap = modalElement.querySelector('.product-conversion-qty-wrap');
+		var conversionQtyInput = modalElement.querySelector('input[name="kg_equivalent_qty"]');
 		if (!baseUnitSelect || !conversionWrap) {
 			return;
 		}
 
 		var baseUnit = String(baseUnitSelect.value || 'pc').toLowerCase();
-		var supportsConversion = ['sack', 'tray', 'pc'].includes(baseUnit);
-		var conversionEnabled = supportsConversion && !!convertCheckbox && convertCheckbox.checked;
-		conversionWrap.style.display = supportsConversion ? 'block' : 'none';
+		var productTypeInput = modalElement.querySelector('input[name="product_type"]');
+		var isLpg = productTypeInput && String(productTypeInput.value || '').trim().toUpperCase() === 'LPG';
+		if (isLpg) {
+			conversionWrap.style.display = 'none';
+			if (alternatePriceWrap) {
+				alternatePriceWrap.style.display = 'none';
+			}
+			return;
+		}
+		var selectedAlternateUnit = alternateUnitSelect ? String(alternateUnitSelect.value || '').toLowerCase() : '';
+		refreshAlternateUnitOptions(modalElement, baseUnit, selectedAlternateUnit);
+		selectedAlternateUnit = alternateUnitSelect ? String(alternateUnitSelect.value || '').toLowerCase() : '';
+
+		var conversionEnabled = !!convertCheckbox && convertCheckbox.checked;
+		var hasAlternateUnit = selectedAlternateUnit !== '' && selectedAlternateUnit !== baseUnit;
+		conversionWrap.style.display = 'block';
+		if (alternateUnitWrap) {
+			alternateUnitWrap.style.display = conversionEnabled ? 'block' : 'none';
+		}
+		if (conversionQtyWrap) {
+			conversionQtyWrap.style.display = conversionEnabled ? 'block' : 'none';
+		}
+		if (conversionQtyInput) {
+			conversionQtyInput.required = conversionEnabled && hasAlternateUnit;
+			if (!conversionEnabled) {
+				conversionQtyInput.value = '0';
+			}
+		}
 		if (basePriceLabel) {
 			basePriceLabel.textContent = getBasePriceLabel(baseUnit);
 		}
 		if (alternatePriceWrap) {
-			alternatePriceWrap.style.display = conversionEnabled ? 'block' : 'none';
+			alternatePriceWrap.style.display = conversionEnabled && hasAlternateUnit ? 'block' : 'none';
 		}
 		if (alternatePriceLabel) {
-			alternatePriceLabel.textContent = getAlternatePriceLabel(baseUnit);
+			alternatePriceLabel.textContent = hasAlternateUnit ? getAlternatePriceLabel(selectedAlternateUnit) : 'Alternate Unit Selling Price';
 		}
 		if (alternatePriceInput) {
-			alternatePriceInput.required = conversionEnabled;
-			if (!conversionEnabled) {
+			alternatePriceInput.required = conversionEnabled && hasAlternateUnit;
+			if (!conversionEnabled || !hasAlternateUnit) {
 				alternatePriceInput.value = '';
 			}
 		}
+		if (alternateUnitSelect) {
+			alternateUnitSelect.required = conversionEnabled;
+		}
 		if (conversionHint) {
-			if (baseUnit === 'sack') {
-				conversionHint.textContent = 'Example: 1 Sack = 50 KG lets you sell rice by sack or by kilogram.';
-			} else if (baseUnit === 'tray') {
-				conversionHint.textContent = 'Example: 1 Tray = 30 Pcs lets you sell eggs by tray or by piece.';
-			} else if (baseUnit === 'pc') {
-				conversionHint.textContent = 'Example: 1 KG = 50 Pcs lets you sell by kilogram or by piece.';
+			if (conversionEnabled && hasAlternateUnit) {
+				if (baseUnit === 'pc' && selectedAlternateUnit === 'kg') {
+					conversionHint.textContent = 'Example: 1 KG = 50 Pcs lets you sell by kilogram or by piece.';
+				} else {
+					conversionHint.textContent = 'Example: 1 ' + getUnitLabel(baseUnit) + ' = 50 ' + getUnitLabel(selectedAlternateUnit) + ' lets you sell using either unit.';
+				}
+			} else if (conversionEnabled) {
+				conversionHint.textContent = 'Choose which unit this product can also be sold in.';
 			} else {
-				conversionHint.textContent = '';
+				conversionHint.textContent = 'Enable this if the product can be sold in another unit.';
 			}
 		}
 		if (conversionLabel) {
-			conversionLabel.textContent = getAlternateUnitLabel(baseUnit);
+			conversionLabel.textContent = hasAlternateUnit
+				? getAlternateUnitLabel(baseUnit, selectedAlternateUnit)
+				: 'Conversion Qty';
 		}
 	}
 
@@ -495,7 +681,9 @@
 				name: String(dataset.productName || '').trim(),
 				type: String(dataset.productType || 'Products').trim() || 'Products',
 				unit: String(dataset.productUnit || 'pc').toLowerCase(),
-				price: Number(dataset.productPrice || 0),
+				unit_label: String(dataset.unitLabel || 'Pcs').trim() || 'Pcs',
+				unit_detail: String(dataset.unitDetail || '').trim(),
+				price: Number(dataset.baseSellingPrice || dataset.sellingPrice || 0),
 				active: Number(dataset.productActive || 0),
 				exportable: Number(dataset.productExportable || 0)
 			};
@@ -652,119 +840,6 @@
 		return chunks;
 	}
 
-	function printPlainProductPriceList() {
-		var products = getActivePriceListProducts();
-		if (products.length === 0) {
-			alert('No active products are available to print.');
-			return;
-		}
-
-		var printWindow = window.open('', '_blank', 'width=1280,height=900');
-		if (!printWindow) {
-			alert('Please allow pop-ups so the plain price list can be printed.');
-			return;
-		}
-
-		var pages = chunkPriceListProducts(products, 4);
-		var pagesHtml = pages.map(function (pageProducts) {
-			var rowsHtml = pageProducts.map(function (product) {
-				return `
-					<div class="plain-price-list-row">
-						<div class="plain-price-list-name">${escapeHtml(product.name)}</div>
-						<div class="plain-price-list-price">${escapeHtml(formatProductCurrency(product.price))}</div>
-					</div>
-				`;
-			}).join('');
-
-			return `
-				<section class="plain-price-list-page">
-					${rowsHtml}
-				</section>
-			`;
-		}).join('');
-
-		printWindow.document.open();
-		printWindow.document.write(`
-			<!DOCTYPE html>
-			<html lang="en">
-			<head>
-				<meta charset="utf-8" />
-				<title>${escapeHtml(productPriceListConfig.companyName)} ${escapeHtml(productPriceListConfig.catalogTitle || 'Price List')}</title>
-				<style>
-					@page {
-						size: letter landscape;
-						margin: 0.5in;
-					}
-
-					* {
-						box-sizing: border-box;
-						-webkit-print-color-adjust: exact !important;
-						print-color-adjust: exact !important;
-					}
-
-					body {
-						margin: 0;
-						font-family: Arial, Helvetica, sans-serif;
-						color: #111111;
-						background: #ffffff;
-					}
-
-					.plain-price-list-page {
-						min-height: 7.8in;
-						display: flex;
-						flex-direction: column;
-						justify-content: space-evenly;
-					}
-
-					.plain-price-list-page + .plain-price-list-page {
-						page-break-before: always;
-					}
-
-					.plain-price-list-row {
-						display: flex;
-						align-items: flex-start;
-						justify-content: space-between;
-						gap: 28px;
-						padding: 20px 0;
-						border-bottom: 2px solid #111111;
-					}
-
-					.plain-price-list-name,
-					.plain-price-list-price {
-						font-size: 60px;
-						line-height: 1.05;
-						font-weight: 700;
-					}
-
-					.plain-price-list-name {
-						flex: 1 1 auto;
-						min-width: 0;
-						padding-right: 20px;
-						word-break: break-word;
-					}
-
-					.plain-price-list-price {
-						flex: 0 0 auto;
-						white-space: nowrap;
-						text-align: right;
-					}
-				</style>
-			</head>
-			<body>
-				${pagesHtml}
-			</body>
-			</html>
-		`);
-		printWindow.document.close();
-
-		printWindow.onload = function () {
-			setTimeout(function () {
-				printWindow.focus();
-				printWindow.print();
-			}, 300);
-		};
-	}
-
 	function wrapPosterText(ctx, text, maxWidth, maxLines) {
 		var words = String(text || '').split(/\s+/).filter(function (word) {
 			return word !== '';
@@ -866,7 +941,8 @@
 
 		pageProducts.forEach(function (product, itemIndex) {
 			var cardY = cardStartY + (itemIndex * (cardHeight + cardGap));
-			var nameWidth = width - (sidePadding * 2) - 260;
+			var nameWidth = width - (sidePadding * 2) - 290;
+			var unitDetail = String(product.unit_detail || ('1 ' + (product.unit_label || 'Pcs'))).trim();
 
 			ctx.fillStyle = 'rgba(255, 255, 255, 0.92)';
 			drawRoundedRectangle(ctx, sidePadding, cardY, width - (sidePadding * 2), cardHeight, 28);
@@ -884,16 +960,25 @@
 			ctx.textAlign = 'left';
 			ctx.textBaseline = 'top';
 			ctx.fillStyle = '#111827';
-			ctx.font = '600 48px Arial';
+			ctx.font = '600 42px Arial';
 			var nameLines = wrapPosterText(ctx, product.name, nameWidth, 2);
 			nameLines.forEach(function (line, lineIndex) {
-				ctx.fillText(line, sidePadding + 24, cardY + 58 + (lineIndex * 42));
+				ctx.fillText(line, sidePadding + 24, cardY + 54 + (lineIndex * 36));
 			});
 
+			ctx.font = '600 22px Arial';
+			ctx.fillStyle = '#6b7280';
+			ctx.fillText(unitDetail, sidePadding + 24, cardY + 98);
+
 			ctx.textAlign = 'right';
+			ctx.textBaseline = 'top';
 			ctx.fillStyle = '#111827';
 			ctx.font = '700 54px Arial';
 			ctx.fillText(formatProductCurrency(product.price), width - sidePadding - 24, cardY + 44);
+
+			ctx.font = '600 20px Arial';
+			ctx.fillStyle = '#6b7280';
+			ctx.fillText('per ' + String(product.unit_label || 'Pcs'), width - sidePadding - 24, cardY + 102);
 		});
 
 	}
@@ -946,7 +1031,8 @@
 					<input type="hidden" name="productID" value="" />
 
 					<label for="edit_product_name" class="form-label">Product Name</label>
-					<input type="text" class="form-control mb-3" id="edit_product_name" name="product_name" value="" readonly />
+					<input type="text" class="form-control mb-1" id="edit_product_name" name="product_name" value="" required />
+					<small class="text-muted d-block mb-3">Product ID stays the same when you rename. Past receipts keep the name recorded at the time of sale.</small>
 
 					<label for="edit_product_type" class="form-label">Type / Category</label>
 					<input type="text" class="form-control mb-3" id="edit_product_type" name="product_type" list="product_type_suggestions" placeholder="Rice, LPG, Frozen Foods, Eggs" required />
@@ -957,6 +1043,8 @@
 						<option value="kg">KG</option>
 						<option value="sack">Sack</option>
 						<option value="tray">Tray</option>
+						<option value="pack">Pack</option>
+						<option value="tank">Tank</option>
 					</select>
 
 					<div class="product-conversion-wrap mb-3">
@@ -964,20 +1052,36 @@
 							<input class="form-check-input" type="checkbox" value="1" id="edit_can_convert_to_kg" name="can_convert_to_kg" />
 							<label class="form-check-label" for="edit_can_convert_to_kg">Enable alternate sale unit</label>
 						</div>
-						<label for="edit_kg_equivalent_qty" class="form-label product-conversion-label">Alternate Qty</label>
-						<input type="number" step="0.01" min="0" class="form-control" id="edit_kg_equivalent_qty" name="kg_equivalent_qty" value="0" />
+						<div class="product-alternate-unit-wrap mb-2" style="display: none;">
+							<label for="edit_alternate_sale_unit" class="form-label">Convert To Unit</label>
+							<select class="form-select" id="edit_alternate_sale_unit" name="alternate_sale_unit">
+								<option value="">Select unit</option>
+								<?php foreach ($baseUnitOptions as $unitOption): ?>
+									<option value="<?php echo htmlspecialchars($unitOption); ?>"><?php echo htmlspecialchars(junkshop_unit_label($unitOption)); ?></option>
+								<?php endforeach; ?>
+							</select>
+						</div>
+						<div class="product-conversion-qty-wrap" style="display: none;">
+							<label for="edit_kg_equivalent_qty" class="form-label product-conversion-label">Conversion Qty</label>
+							<input type="number" step="0.01" min="0" class="form-control" id="edit_kg_equivalent_qty" name="kg_equivalent_qty" value="0" />
+						</div>
 						<small class="text-muted d-block mt-2 product-conversion-hint"></small>
 					</div>
 
-					<label for="edit_product_price" class="form-label">Purchase Price</label>
-					<input type="number" step="0.01" min="0" class="form-control" id="edit_product_price" name="product_price" value="" />
-					<small class="text-muted d-block mb-3 purchase-price-hint">Used for purchases and purchase history.</small>
-
 					<label for="edit_selling_price" class="form-label product-base-price-label">Selling Price</label>
-					<input type="number" step="0.01" min="0" class="form-control mb-3" id="edit_selling_price" name="selling_price" value="" required />
+					<div class="product-standard-pricing-wrap">
+						<input type="number" step="0.01" min="0" class="form-control mb-3" id="edit_selling_price" name="selling_price" value="" required />
+					</div>
+
+					<div class="product-lpg-pricing-wrap mb-3" style="display: none;">
+						<label for="edit_lpg_refill_price" class="form-label">Refill / Swap Out Price</label>
+						<input type="number" step="0.01" min="0" class="form-control mb-3" id="edit_lpg_refill_price" name="lpg_refill_price" value="" />
+						<label for="edit_lpg_new_tank_price" class="form-label">New Tank with LPG Price</label>
+						<input type="number" step="0.01" min="0" class="form-control" id="edit_lpg_new_tank_price" name="lpg_new_tank_price" value="" />
+					</div>
 
 					<div class="product-alternate-price-wrap mb-3" style="display: none;">
-						<label for="edit_alternate_selling_price" class="form-label product-alternate-price-label">Alternate Unit Price</label>
+						<label for="edit_alternate_selling_price" class="form-label product-alternate-price-label">Alternate Unit Selling Price</label>
 						<input type="number" step="0.01" min="0" class="form-control" id="edit_alternate_selling_price" name="alternate_selling_price" value="" />
 					</div>
 
@@ -1023,6 +1127,8 @@
 						<option value="kg">KG</option>
 						<option value="sack">Sack</option>
 						<option value="tray">Tray</option>
+						<option value="pack">Pack</option>
+						<option value="tank">Tank</option>
 					</select>
 
 					<div class="product-conversion-wrap mb-3">
@@ -1030,20 +1136,36 @@
 							<input class="form-check-input" type="checkbox" value="1" id="new_can_convert_to_kg" name="can_convert_to_kg" />
 							<label class="form-check-label" for="new_can_convert_to_kg">Enable alternate sale unit</label>
 						</div>
-						<label for="new_kg_equivalent_qty" class="form-label product-conversion-label">Alternate Qty</label>
-						<input type="number" step="0.01" min="0" class="form-control" id="new_kg_equivalent_qty" name="kg_equivalent_qty" value="0" />
+						<div class="product-alternate-unit-wrap mb-2" style="display: none;">
+							<label for="new_alternate_sale_unit" class="form-label">Convert To Unit</label>
+							<select class="form-select" id="new_alternate_sale_unit" name="alternate_sale_unit">
+								<option value="">Select unit</option>
+								<?php foreach ($baseUnitOptions as $unitOption): ?>
+									<option value="<?php echo htmlspecialchars($unitOption); ?>"><?php echo htmlspecialchars(junkshop_unit_label($unitOption)); ?></option>
+								<?php endforeach; ?>
+							</select>
+						</div>
+						<div class="product-conversion-qty-wrap" style="display: none;">
+							<label for="new_kg_equivalent_qty" class="form-label product-conversion-label">Conversion Qty</label>
+							<input type="number" step="0.01" min="0" class="form-control" id="new_kg_equivalent_qty" name="kg_equivalent_qty" value="0" />
+						</div>
 						<small class="text-muted d-block mt-2 product-conversion-hint"></small>
 					</div>
 
-					<label for="new_product_price" class="form-label">Purchase Price</label>
-					<input type="number" step="0.01" min="0" class="form-control" id="new_product_price" name="product_price" value="" />
-					<small class="text-muted d-block mb-3 purchase-price-hint">Used for purchases and purchase history.</small>
-
 					<label for="new_selling_price" class="form-label product-base-price-label">Selling Price</label>
-					<input type="number" step="0.01" min="0" class="form-control mb-3" id="new_selling_price" name="selling_price" value="" required />
+					<div class="product-standard-pricing-wrap">
+						<input type="number" step="0.01" min="0" class="form-control mb-3" id="new_selling_price" name="selling_price" value="" required />
+					</div>
+
+					<div class="product-lpg-pricing-wrap mb-3" style="display: none;">
+						<label for="new_lpg_refill_price" class="form-label">Refill / Swap Out Price</label>
+						<input type="number" step="0.01" min="0" class="form-control mb-3" id="new_lpg_refill_price" name="lpg_refill_price" value="" />
+						<label for="new_lpg_new_tank_price" class="form-label">New Tank with LPG Price</label>
+						<input type="number" step="0.01" min="0" class="form-control" id="new_lpg_new_tank_price" name="lpg_new_tank_price" value="" />
+					</div>
 
 					<div class="product-alternate-price-wrap mb-3" style="display: none;">
-						<label for="new_alternate_selling_price" class="form-label product-alternate-price-label">Alternate Unit Price</label>
+						<label for="new_alternate_selling_price" class="form-label product-alternate-price-label">Alternate Unit Selling Price</label>
 						<input type="number" step="0.01" min="0" class="form-control" id="new_alternate_selling_price" name="alternate_selling_price" value="" />
 					</div>
 

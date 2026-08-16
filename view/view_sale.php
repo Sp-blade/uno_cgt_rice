@@ -144,19 +144,6 @@
                                     >
                                         <i class="bi bi-trash3" aria-hidden="true"></i>
                                     </a>
-                                    <?php if ((int) ($sale['IsReturned'] ?? 0) === 0): ?>
-                                        <a
-                                            href="<?php echo $server; ?>?mainmenu=return_item&sale_id=<?php echo $sale['ID']; ?>&return_to=<?php echo urlencode($_SERVER['REQUEST_URI']); ?>"
-                                            class="icon-action-btn icon-action-btn-view"
-                                            onclick='return confirm("Return this item to inventory?")'
-                                            aria-label="Return sale item <?php echo $count; ?>"
-                                            title="Return Item"
-                                        >
-                                            <i class="bi bi-arrow-counterclockwise" aria-hidden="true"></i>
-                                        </a>
-                                    <?php else: ?>
-                                        <span class="badge text-bg-warning">Returned</span>
-                                    <?php endif; ?>
                                     </div>
                                 </td>
                             </tr>
@@ -215,100 +202,6 @@
             </div>
         </div>
     </div>
-
-    <?php if (!empty($saleItems)): ?>
-        <div id="deliveryInvoiceTemplate" class="delivery-invoice-template" aria-hidden="true">
-            <div class="delivery-invoice" id="deliveryInvoicePrint">
-                <div class="delivery-invoice-topbar"></div>
-                <div class="delivery-invoice-header">
-                    <div class="delivery-invoice-brand">
-                        <p class="delivery-invoice-eyebrow"><?php echo htmlspecialchars($companyName ?? 'Company'); ?></p>
-                        <h4>Sale Invoice</h4>
-                        <?php if (!empty($companyAddressLine1)): ?><p><?php echo htmlspecialchars($companyAddressLine1); ?></p><?php endif; ?>
-                        <?php if (!empty($companyAddressLine2)): ?><p><?php echo htmlspecialchars($companyAddressLine2); ?></p><?php endif; ?>
-                        <?php if (!empty($companyContactNumber)): ?><p>Contact: <?php echo htmlspecialchars($companyContactNumber); ?></p><?php endif; ?>
-                    </div>
-                    <div class="delivery-invoice-meta">
-                        <div class="delivery-invoice-meta-grid">
-                            <div>
-                                <span>Invoice #</span>
-                                <strong><?php echo $deliveryNo; ?></strong>
-                            </div>
-                            <div>
-                                <span>Date & Time</span>
-                                <strong><?php echo junkshop_format_datetime($saleDate); ?></strong>
-                            </div>
-                            <div>
-                                <span>Customer</span>
-                                <strong><?php echo htmlspecialchars($customerName ?: 'Walk-in Customer'); ?></strong>
-                            </div>
-                            <div>
-                                <span>Address</span>
-                                <strong><?php echo htmlspecialchars($customerAddress !== '' ? $customerAddress : 'Not provided'); ?></strong>
-                            </div>
-                            <div>
-                                <span>Balance</span>
-                                <strong>&#8369;<?php echo number_format($invoiceBalance, 2); ?></strong>
-                            </div>
-                            <div>
-                                <span>Due Date</span>
-                                <strong><?php echo $invoiceDueDate !== '' ? date('M d, Y', strtotime($invoiceDueDate)) : 'No due date'; ?></strong>
-                            </div>
-                            <div>
-                                <span>Items</span>
-                                <strong><?php echo count($saleItems); ?></strong>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="delivery-invoice-table-wrap">
-                    <table class="delivery-invoice-table">
-                        <thead>
-                            <tr>
-                                <th>Sl.</th>
-                                <th>Item Description</th>
-                                <th class="text-end">Selling Price</th>
-                                <th class="text-end">Qty.</th>
-                                <th class="text-end">Total</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <?php foreach ($saleItems as $index => $sale): ?>
-                                <tr>
-                                    <td><?php echo $index + 1; ?></td>
-                                    <td>
-                                        <strong><?php echo htmlspecialchars($sale['ProductName']); ?></strong>
-                                        <?php if (!empty($sale['Notes'])): ?>
-                                            <small><?php echo htmlspecialchars($sale['Notes']); ?></small>
-                                        <?php endif; ?>
-                                    </td>
-                                    <td class="text-end">&#8369;<?php echo number_format($sale['UnitPrice'], 2); ?></td>
-                                    <td class="text-end"><?php echo number_format($sale['Quantity'], 2); ?> <?php echo htmlspecialchars(junkshop_unit_label($sale['SaleUnit'] ?? 'pc')); ?></td>
-                                    <td class="text-end">&#8369;<?php echo number_format($sale['TotalSalePrice'], 2); ?></td>
-                                </tr>
-                            <?php endforeach; ?>
-                        </tbody>
-                    </table>
-                </div>
-
-                <div class="delivery-invoice-footer">
-                    <div class="delivery-invoice-notes">
-                        <p class="delivery-invoice-footer-title">Thank you for your business</p>
-                        <p>This invoice covers the sale items for this transaction.</p>
-                        <p class="delivery-invoice-signoff">Prepared by <?php echo htmlspecialchars($companyName ?? 'Company'); ?></p>
-                    </div>
-                    <div class="delivery-invoice-totals">
-                        <?php if ($invoiceBalance > 0): ?>
-                            <div><span>Balance</span><strong>&#8369;<?php echo number_format($invoiceBalance, 2); ?></strong></div>
-                            <div><span>Due Date</span><strong><?php echo $invoiceDueDate !== '' ? date('M d, Y', strtotime($invoiceDueDate)) : 'No due date'; ?></strong></div>
-                        <?php endif; ?>
-                        <div class="delivery-invoice-grand-total"><span>Grand Total</span><strong>&#8369;<?php echo number_format($saleTotal, 2); ?></strong></div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    <?php endif; ?>
 </div>
 
 <div class="row custom-row fixed-footer">
@@ -317,7 +210,7 @@
     </div>
     <div class="col-md-2 col-12 footer-action">
         <?php if (!empty($saleItems)): ?>
-            <button type="button" class="btn btn-outline-secondary form-control" onclick="printDeliveryInvoice()">Print Sale Invoice</button>
+			<a class="btn btn-outline-secondary form-control" href="<?php echo $server; ?>?mainmenu=print_sale_receipt&amp;deliveryNo=<?php echo (int) $deliveryNo; ?>&amp;return_to=<?php echo urlencode('?mainmenu=view_sale&deliveryNo=' . (int) $deliveryNo . '&return_to=' . $returnTo); ?>">Print Receipt</a>
         <?php endif; ?>
     </div>
     <!-- Adjusted Footer to only show Sale Total -->
@@ -373,140 +266,5 @@
         const quantity = parseFloat(document.getElementById('detail_quantity').value) || 0;
         const price = parseFloat(document.getElementById('detail_product_price').value) || 0;
         document.getElementById('detail_total_sale_price').value = (quantity * price).toFixed(2);
-    }
-
-    function printDeliveryInvoice() {
-        const invoiceTemplate = document.getElementById('deliveryInvoiceTemplate');
-        if (!invoiceTemplate) {
-            return;
-        }
-
-        const stylesheetLinks = Array.from(document.querySelectorAll('link[rel="stylesheet"]'))
-            .map(function(link) {
-                return link.outerHTML;
-            })
-            .join('');
-
-        const inlineStyles = Array.from(document.querySelectorAll('style'))
-            .map(function(styleTag) {
-                return styleTag.outerHTML;
-            })
-            .join('');
-
-        const printWindow = window.open('', '_blank', 'width=1200,height=900');
-        if (!printWindow) {
-            alert('Please allow pop-ups so the invoice can be printed.');
-            return;
-        }
-
-        printWindow.document.open();
-        printWindow.document.write(`
-            <!DOCTYPE html>
-            <html lang="en">
-            <head>
-                <meta charset="utf-8">
-                <meta name="viewport" content="width=device-width, initial-scale=1">
-                <title>Sale Invoice #${<?php echo $deliveryNo; ?>}</title>
-                ${stylesheetLinks}
-                ${inlineStyles}
-                <style>
-                    html, body {
-                        background: #eef4f8;
-                        -webkit-print-color-adjust: exact !important;
-                        print-color-adjust: exact !important;
-                    }
-
-                    body {
-                        margin: 0;
-                        padding: 32px;
-                    }
-
-                    .delivery-print-stage {
-                        width: 8in;
-                        max-width: 8in;
-                        margin: 0 auto;
-                    }
-
-                    .delivery-print-stage .delivery-invoice {
-                        max-width: none;
-                        box-sizing: border-box;
-                        padding: 18px 20px 20px !important;
-                        border: 1px solid rgba(148, 163, 184, 0.24);
-                        border-radius: 24px;
-                        box-shadow: none !important;
-                    }
-
-                    .delivery-print-stage .delivery-invoice-topbar {
-                        margin-bottom: 14px !important;
-                    }
-
-                    .delivery-print-stage .delivery-invoice-header {
-                        display: flex !important;
-                        flex-direction: row !important;
-                        justify-content: space-between !important;
-                        align-items: flex-start !important;
-                        gap: 18px !important;
-                        margin-bottom: 16px !important;
-                    }
-
-                    .delivery-print-stage .delivery-invoice-brand,
-                    .delivery-print-stage .delivery-invoice-meta {
-                        flex: 1 1 0 !important;
-                    }
-
-                    .delivery-print-stage .delivery-invoice-brand p,
-                    .delivery-print-stage .delivery-invoice-notes p {
-                        margin-bottom: 0.22rem !important;
-                        font-size: 0.95rem !important;
-                    }
-
-                    .delivery-print-stage .delivery-invoice-meta-grid {
-                        display: grid !important;
-                        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-                        gap: 10px !important;
-                        padding: 14px !important;
-                    }
-
-                    .delivery-print-stage .delivery-invoice-footer {
-                        display: grid !important;
-                        grid-template-columns: minmax(0, 1.3fr) minmax(240px, 0.9fr) !important;
-                        gap: 16px !important;
-                        align-items: end !important;
-                    }
-
-                    .delivery-print-stage .delivery-invoice-table-wrap,
-                    .delivery-print-stage .delivery-invoice-totals,
-                    .delivery-print-stage .delivery-invoice-footer,
-                    .delivery-print-stage .delivery-invoice-notes {
-                        break-inside: avoid;
-                    }
-
-                    .delivery-print-stage .delivery-invoice-table th,
-                    .delivery-print-stage .delivery-invoice-table td {
-                        padding: 0.56rem 0.68rem !important;
-                        font-size: 0.95rem !important;
-                    }
-
-                    .delivery-print-stage .delivery-invoice-table thead th {
-                        font-size: 0.72rem !important;
-                    }
-                </style>
-            </head>
-            <body>
-                <div class="delivery-print-stage">
-                    ${invoiceTemplate.innerHTML}
-                </div>
-                <script>
-                    window.onload = function() {
-                        setTimeout(function() {
-                            window.print();
-                            window.close();
-                        }, 500);
-                    };
-                <\/script>
-            </body>
-            </html>
-        `);
-        printWindow.document.close();
     }
 </script>

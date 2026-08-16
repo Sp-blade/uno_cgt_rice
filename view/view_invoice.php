@@ -1,5 +1,4 @@
 <?php
-    $page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
     $searchInvoice = isset($_GET['searchInvoice']) ? $_GET['searchInvoice'] : '';
     $returnTo = isset($_GET['return_to']) ? $_GET['return_to'] : '?mainmenu=purchase_list';
     $encodedReturnTo = htmlspecialchars($returnTo, ENT_QUOTES);
@@ -8,7 +7,21 @@
     $purchaseList = $connectDB->query($allPurchases);
 	
 	$products = [];
-	$sql_selectProducts = "SELECT Product_ID AS id, ProductName AS name, ProductPrice AS price FROM products WHERE IsActive = 1 AND COALESCE(IsSubProduct, 0) = 0 ORDER BY ProductName ASC";
+	$sql_selectProducts = "
+		SELECT
+			p.Product_ID AS id,
+			p.ProductName AS name,
+			COALESCE((
+				SELECT pu.ProductPrice
+				FROM purchases pu
+				WHERE pu.Product_ID = p.Product_ID
+				ORDER BY pu.PurchaseDate DESC, pu.ID DESC
+				LIMIT 1
+			), 0) AS price
+		FROM products p
+		WHERE p.IsActive = 1 AND COALESCE(p.IsSubProduct, 0) = 0
+		ORDER BY p.ProductName ASC
+	";
 	$allProducts = $connectDB->query($sql_selectProducts);
 
 	if ($allProducts->num_rows > 0) {
@@ -41,8 +54,13 @@
 		<?php
 			$invoiceTotalPrice = 0;
 			$productCount = 0;
+			$purchaseItems = [];
+			$purchaseDate = junkshop_normalize_datetime('');
 			while($Product = $purchaseList->fetch_assoc()){
 				$productCount++;
+				$purchaseItems[] = $Product;
+				$purchaseDate = $Product['PurchaseDate'];
+				$invoiceTotalPrice = $invoiceTotalPrice + $Product['TotalPurchasePrice'];
 				echo "<tr>";
 					echo "<td>" . $productCount . "</td>";
 					echo "<td>" . junkshop_format_datetime($Product['PurchaseDate']) . "</td>";
@@ -64,7 +82,7 @@
 						 title='Edit'>
 						 <i class='bi bi-pencil-square' aria-hidden='true'></i>
 						</button>";
-					echo "<a href='" . $server . "?mainmenu=view_invoice&page=" . $page . "&searchInvoice=" . $searchInvoice . "&invoiceNo=". $invoiceNo ."&return_to=" . urlencode($returnTo) . "&delete_product=&ID=" . $Product['ID'] ." '
+					echo "<a href='" . $server . "?mainmenu=view_invoice&searchInvoice=" . urlencode($searchInvoice) . "&invoiceNo=". $invoiceNo ."&return_to=" . urlencode($returnTo) . "&delete_product=&ID=" . $Product['ID'] ." '
 						 class='icon-action-btn icon-action-btn-delete'
 						 onclick='return confirm(\"Do you want to delete this Product ? \")'
 						 aria-label='Delete " . htmlspecialchars($Product['ProductName'], ENT_QUOTES) . "'
@@ -74,14 +92,6 @@
 					echo "</div>";
 					echo "</td>";
 				echo "</tr>";
-				
-				$purchaseDate = $Product['PurchaseDate'];
-				$productNames[] = $Product['ProductName'];
-				$productQuantities[] = $Product['Quantity'];
-				$productPrices[] = $Product['ProductPrice'];
-				$TotalPurchasePrices[] = $Product['TotalPurchasePrice'];
-				
-				$invoiceTotalPrice = $invoiceTotalPrice + $Product['TotalPurchasePrice'];
 			}
 		?>
 				</tbody>
@@ -97,18 +107,9 @@
 		<button data-toggle='modal' data-target='#addNewProduct' class='btn btn-outline-secondary form-control'>Add Item</button>
     </div>
 	<div class="col-md-2 col-12 footer-action">
-        <form class="pagebtn" action="" method="POST">
-            <input type="hidden" name="mainmenu" value="purchase_invoice"/>
-            <input type="hidden" name="previousmenu" value="view_invoice"/>
-            <input type="hidden" name="invoiceNo" value="<?php echo $invoiceNo; ?>"/>
-            <input type="hidden" name="purchase_date" value="<?php echo htmlspecialchars($purchaseDate ?? junkshop_normalize_datetime(''), ENT_QUOTES); ?>"/>
-            <input type="hidden" name="product_name" value='<?php echo serialize($productNames); ?>' />
-            <input type="hidden" name="product_quantity" value='<?php echo serialize($productQuantities); ?>' />
-            <input type="hidden" name="product_price" value='<?php echo serialize($productPrices); ?>' />
-            <input type="hidden" name="total_price" value='<?php echo serialize($TotalPurchasePrices); ?>' />
-            <input type="hidden" name="grandTotal" value="<?php echo $invoiceTotalPrice; ?>"/>
-            <input type="submit" name="BtnBack" class="btn btn-outline-secondary form-control" value="Print Receipt"/>
-        </form>
+		<?php if ($productCount > 0): ?>
+			<a class="btn btn-outline-secondary form-control" href="<?php echo $server; ?>?mainmenu=print_purchase_invoice&amp;invoiceNo=<?php echo (int) $invoiceNo; ?>&amp;return_to=<?php echo urlencode('?mainmenu=view_invoice&invoiceNo=' . (int) $invoiceNo . '&searchInvoice=' . urlencode($searchInvoice) . '&return_to=' . urlencode($returnTo)); ?>">Print Invoice</a>
+		<?php endif; ?>
     </div>
     <div class="col-md-2 col-6 footer-metric">
         <p><strong>Total Item:</strong><br><span class="totalprice"><?php echo $productCount; ?></span></p>
@@ -175,7 +176,6 @@
                 <input type="hidden" name="mainmenu" value="view_invoice" />
                 <input type="hidden" name="invoiceNo" value="<?php echo $invoiceNo; ?>" />
                 <input type="hidden" name="edit_purchase_details" value="edit_purchase_details" />
-                <input type="hidden" name="page" value="<?php echo $page; ?>" />
                 <input type="hidden" name="searchInvoice" value="<?php echo $searchInvoice; ?>" />
                 <input type="hidden" name="return_to" value="<?php echo $encodedReturnTo; ?>" />
                 <input type="hidden" name="ID" value=""/> <!-- Hidden input for Product ID -->
@@ -218,7 +218,6 @@
                 
                     <input type="hidden" name="mainmenu" value="view_invoice" />
 					<input type="hidden" name="searchInvoice" value="<?php echo $searchInvoice; ?>"/>
-					<input type="hidden" name="page" value="<?php echo $page; ?>"/>
 					<input type="hidden" name="return_to" value="<?php echo $encodedReturnTo; ?>" />
 					<input type="hidden" name="invoiceNo" value="<?php echo $invoiceNo; ?>" />
 					<input type="hidden" name="purchase_date" value="<?php echo htmlspecialchars($purchaseDate ?? junkshop_normalize_datetime(''), ENT_QUOTES); ?>" />

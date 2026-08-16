@@ -21,28 +21,44 @@
 			break;
 			
 		case "view_invoice":
-			
-			$sql_delete_product="DELETE FROM purchases WHERE ID='$product_id'";
-				
-			if($connectDB->query($sql_delete_product))
-			{
+			$connectDB->begin_transaction();
+
+			try {
+				$deleteResult = junkshop_delete_purchase_records($connectDB, "ID='$product_id'");
+				if (!$deleteResult['success']) {
+					throw new Exception($deleteResult['message']);
+				}
+
+				$connectDB->commit();
 				echo "<div class='alert alert-success' role='alert'> Product has been successfully deleted</div>";
-			}
-			else{
-				echo "<div class='alert alert-danger' role='alert'> Error in deleting the product</div>";
+			} catch (Exception $exception) {
+				$connectDB->rollback();
+				$errorMessage = trim($exception->getMessage());
+				if ($errorMessage === '') {
+					$errorMessage = 'Error in deleting the product';
+				}
+				echo "<div class='alert alert-danger' role='alert'>" . htmlspecialchars($errorMessage, ENT_QUOTES) . "</div>";
 			}
 			break;
 
 		case "purchase_list":
+			$connectDB->begin_transaction();
 
-			$sql_delete_product="DELETE FROM purchases WHERE InvoiceNo='$invoice_no'";
-				
-			if($connectDB->query($sql_delete_product))
-			{
+			try {
+				$deleteResult = junkshop_delete_purchase_records($connectDB, "InvoiceNo='$invoice_no'");
+				if (!$deleteResult['success']) {
+					throw new Exception($deleteResult['message']);
+				}
+
+				$connectDB->commit();
 				echo "<div class='alert alert-success' role='alert'> Purchase history has been successfully deleted</div>";
-			}
-			else{
-				echo "<div class='alert alert-danger' role='alert'> Error in deleting the purchase history</div>";
+			} catch (Exception $exception) {
+				$connectDB->rollback();
+				$errorMessage = trim($exception->getMessage());
+				if ($errorMessage === '') {
+					$errorMessage = 'Error in deleting the purchase history';
+				}
+				echo "<div class='alert alert-danger' role='alert'>" . htmlspecialchars($errorMessage, ENT_QUOTES) . "</div>";
 			}
 			break;
 
@@ -88,6 +104,8 @@
 					throw new Exception('sale');
 				}
 
+				junkshop_delete_sale_loan_records($connectDB, $delivery_no, true);
+
 				$connectDB->commit();
 				echo "<div class='alert alert-success' role='alert'> Sales history has been successfully deleted</div>";
 			} catch (Exception $exception) {
@@ -119,8 +137,8 @@
 				break;
 			}
 
-			$sale_delivery_no = mysqli_real_escape_string($connectDB, $sale_details['DeliveryNo']);
-			$sale_product_name = mysqli_real_escape_string($connectDB, $sale_details['ProductName']);
+			$sale_delivery_no = (int) ($sale_details['DeliveryNo'] ?? 0);
+			$sale_product_name = mysqli_real_escape_string($connectDB, $sale_details['ProductName'] ?? '');
 
 			$connectDB->begin_transaction();
 
@@ -132,6 +150,8 @@
 				if (!$connectDB->query("DELETE FROM sales WHERE ID='$product_id'")) {
 					throw new Exception('sale');
 				}
+
+				junkshop_sync_customer_account_for_delivery($connectDB, $sale_delivery_no);
 
 				$connectDB->commit();
 				echo "<div class='alert alert-success' role='alert'> Sold/Delivery record has been successfully deleted</div>";

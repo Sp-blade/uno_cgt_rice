@@ -61,20 +61,23 @@
 		$baseUnit = 'pc';
 		$canConvert = 0;
 		$equivQty = 0;
+		$alternateSaleUnit = '';
 		if ($productId > 0) {
-			$productMetaResult = $connectDB->query("SELECT ProductBaseUnit, CanConvertToKg, KgEquivalentQty FROM products WHERE Product_ID = '$productId' LIMIT 1");
+			$productMetaResult = $connectDB->query("SELECT ProductBaseUnit, CanConvertToKg, KgEquivalentQty, AlternateSaleUnit FROM products WHERE Product_ID = '$productId' LIMIT 1");
 			if ($productMetaResult && ($productMetaRow = $productMetaResult->fetch_assoc())) {
 				$baseUnit = junkshop_normalize_base_unit($productMetaRow['ProductBaseUnit'] ?? 'pc');
 				$canConvert = (int) ($productMetaRow['CanConvertToKg'] ?? 0);
 				$equivQty = (float) ($productMetaRow['KgEquivalentQty'] ?? 0);
+				$alternateSaleUnit = trim((string) ($productMetaRow['AlternateSaleUnit'] ?? ''));
 			}
 		}
-		$baseQuantity = junkshop_sale_qty_to_base($quantity, $saleUnit, $baseUnit, $equivQty);
+		$baseQuantity = junkshop_sale_qty_to_base($quantity, $saleUnit, $baseUnit, $equivQty, $alternateSaleUnit);
 		$requestedQuantities[$key] = ($requestedQuantities[$key] ?? 0) + $baseQuantity;
 		$productMetaByKey[$key] = [
 			'base_unit' => $baseUnit,
 			'can_convert' => $canConvert,
 			'equiv_qty' => $equivQty,
+			'alternate_sale_unit' => $alternateSaleUnit,
 		];
 	}
 
@@ -87,10 +90,11 @@
 		$keyParts = explode('|', $key, 2);
 		$productId = (int) ($keyParts[0] ?? 0);
 		$name = mysqli_real_escape_string($connectDB, $keyParts[1] ?? '');
+		$productClause = junkshop_inventory_product_clause($connectDB, $productId, $keyParts[1] ?? '');
 		$stockResult = $connectDB->query("
 			SELECT COALESCE(SUM(QuantityRemaining), 0) AS AvailableStock
 			FROM inventory_batches
-			WHERE (Product_ID = '$productId' OR ProductName = '$name') AND QuantityRemaining > 0
+			WHERE ($productClause) AND QuantityRemaining > 0
 		");
 		$availableStock = 0;
 		if ($stockResult && $stockRow = $stockResult->fetch_assoc()) {
@@ -139,32 +143,53 @@
 				$rowSalesType = 'LPG';
 			}
 		}
-		$lpgTransactionType = strtoupper(trim((string) ($lpgTransactionTypes[$index] ?? 'NONE')));
-		if ($rowSalesType !== 'LPG' || $lpgTransactionType !== 'SWAPPED') {
+		$lpgTransactionType = strtoupper(trim((string) ($lpgTransactionTypes[$index] ?? 'SWAPPED')));
+		if ($rowSalesType !== 'LPG') {
 			$lpgTransactionType = 'NONE';
+			$lpgTankCondition = '';
+		} else {
+			if (!in_array($lpgTransactionType, ['SOLD', 'LENT', 'SWAPPED'], true)) {
+				$lpgTransactionType = 'SWAPPED';
+			}
+			if ($lpgTransactionType === 'LENT' && junkshop_is_walk_in_customer($customerName)) {
+				header('Location: ' . $server . '?mainmenu=sell_product_others&sale_error=' . urlencode('Lent LPG tanks require a registered customer.'));
+				die();
+			}
+			if ($lpgTransactionType === 'SWAPPED' || $lpgTransactionType === 'LENT') {
+				$lpgTankCondition = junkshop_lpg_normalize_tank_condition($lpgTankConditions[$index] ?? '');
+				if ($lpgTankCondition === '') {
+					$conditionMessage = $lpgTransactionType === 'LENT'
+						? 'Select lent tank condition (New or Old).'
+						: 'Select empty tank condition (New or Old).';
+					header('Location: ' . $server . '?mainmenu=sell_product_others&sale_error=' . urlencode($conditionMessage));
+					die();
+				}
+				$lpgTankCondition = mysqli_real_escape_string($connectDB, $lpgTankCondition);
+			} else {
+				$lpgTankCondition = '';
+			}
 		}
-		$lpgTankCondition = $lpgTransactionType === 'SWAPPED'
-			? trim(mysqli_real_escape_string($connectDB, $lpgTankConditions[$index] ?? ''))
-			: '';
 		$lpgTankPayment = 0;
 		$baseUnit = 'pc';
 		$canConvert = 0;
 		$equivQty = 0;
+		$alternateSaleUnit = '';
 		if ($productId > 0) {
-			$productMetaResult = $connectDB->query("SELECT ProductBaseUnit, CanConvertToKg, KgEquivalentQty FROM products WHERE Product_ID = '$productId' LIMIT 1");
+			$productMetaResult = $connectDB->query("SELECT ProductBaseUnit, CanConvertToKg, KgEquivalentQty, AlternateSaleUnit FROM products WHERE Product_ID = '$productId' LIMIT 1");
 			if ($productMetaResult && ($productMetaRow = $productMetaResult->fetch_assoc())) {
 				$baseUnit = junkshop_normalize_base_unit($productMetaRow['ProductBaseUnit'] ?? 'pc');
 				$canConvert = (int) ($productMetaRow['CanConvertToKg'] ?? 0);
 				$equivQty = (float) ($productMetaRow['KgEquivalentQty'] ?? 0);
+				$alternateSaleUnit = trim((string) ($productMetaRow['AlternateSaleUnit'] ?? ''));
 			}
 		}
 		$saleUnit = junkshop_normalize_base_unit($saleUnits[$index] ?? $baseUnit);
 		$kgConversionQty = (float) ($kgConversionQuantities[$index] ?? 0);
-		if (!junkshop_can_convert_units($baseUnit, $canConvert, $equivQty)) {
+		if (!junkshop_can_convert_units($baseUnit, $canConvert, $equivQty, $alternateSaleUnit)) {
 			$saleUnit = $baseUnit;
 			$kgConversionQty = 0;
 		} elseif ($saleUnit !== $baseUnit) {
-			$alternateUnit = junkshop_get_alternate_sale_unit($baseUnit);
+			$alternateUnit = junkshop_get_alternate_sale_unit($baseUnit, $alternateSaleUnit);
 			if ($saleUnit !== $alternateUnit) {
 				$saleUnit = $baseUnit;
 				$kgConversionQty = 0;
@@ -174,10 +199,30 @@
 		} else {
 			$kgConversionQty = 0;
 		}
-		$baseQuantity = junkshop_sale_qty_to_base($quantity, $saleUnit, $baseUnit, $kgConversionQty > 0 ? $kgConversionQty : $equivQty);
+		$baseQuantity = junkshop_sale_qty_to_base($quantity, $saleUnit, $baseUnit, $kgConversionQty > 0 ? $kgConversionQty : $equivQty, $alternateSaleUnit);
 
 		if ($name === '' || $quantity <= 0 || $price <= 0) {
 			continue;
+		}
+
+		if (junkshop_get_inventory_stock($connectDB, $productId) + 0.009 < $baseQuantity) {
+			header('Location: ' . $server . '?mainmenu=sell_product_others&sale_error=' . urlencode('Not enough inventory stock for ' . trim((string) $productName) . '.'));
+			die();
+		}
+		if ($rowSalesType === 'LPG' && $lpgTransactionType === 'SOLD') {
+			$tankProductId = junkshop_get_lpg_tank_product_id($connectDB, $productId);
+			if ($tankProductId <= 0) {
+				$tankProductId = junkshop_ensure_lpg_tank_product($connectDB, $productId, trim((string) $productName), 'tank', 1);
+			}
+			if ($tankProductId <= 0) {
+				header('Location: ' . $server . '?mainmenu=sell_product_others&sale_error=' . urlencode('Tank product is missing for this LPG item. Check All Products.'));
+				die();
+			}
+			$tankStock = junkshop_get_inventory_stock($connectDB, $tankProductId);
+			if ($tankStock + 0.009 < $baseQuantity) {
+				header('Location: ' . $server . '?mainmenu=sell_product_others&sale_error=' . urlencode('Not enough tank stock for New Tank with LPG sale. Available tanks: ' . number_format($tankStock, 2)));
+				die();
+			}
 		}
 
 		$rowPaymentStatus = strtoupper(trim((string) ($paymentStatuses[$index] ?? 'PAID')));
@@ -208,27 +253,62 @@
 			$saleId = $connectDB->insert_id;
 			$totalSavedSaleAmount += $total;
 			$totalAccountPaid += $rowAmountPaid;
-			$remainingToDeduct = $baseQuantity;
-			$batchResult = $connectDB->query("
-				SELECT ID, QuantityRemaining
-				FROM inventory_batches
-				WHERE (Product_ID = '$productId' OR ProductName = '$name') AND QuantityRemaining > 0
-				ORDER BY CASE WHEN BatchLabel = 'OLD' THEN 0 ELSE 1 END, BatchDate ASC, ID ASC
-			");
-			while ($batchResult && $batch = $batchResult->fetch_assoc()) {
-				if ($remainingToDeduct <= 0) {
-					break;
+			$linePurchaseCost = 0.0;
+			$fifoResult = junkshop_deduct_inventory_fifo(
+				$connectDB,
+				$productId,
+				$name,
+				$baseQuantity,
+				$saleDate,
+				$saleId,
+				$deliveryNo,
+				false
+			);
+			$linePurchaseCost = $fifoResult['cost'];
+			if ($fifoResult['remaining'] > 0.009) {
+				header('Location: ' . $server . '?mainmenu=sell_product_others&sale_error=' . urlencode('Not enough inventory stock for ' . trim((string) $productName) . '.'));
+				die();
+			}
+			if ($rowSalesType === 'LPG' && $lpgTransactionType === 'SOLD') {
+				$tankProductId = junkshop_get_lpg_tank_product_id($connectDB, $productId);
+				$tankProductName = junkshop_lpg_tank_product_name(trim((string) $productName));
+				$tankFifoResult = junkshop_deduct_inventory_fifo(
+					$connectDB,
+					$tankProductId,
+					$tankProductName,
+					$baseQuantity,
+					$saleDate,
+					$saleId,
+					$deliveryNo,
+					false
+				);
+				$linePurchaseCost += $tankFifoResult['cost'];
+				if ($tankFifoResult['remaining'] > 0.009) {
+					header('Location: ' . $server . '?mainmenu=sell_product_others&sale_error=' . urlencode('Not enough tank stock for New Tank with LPG sale.'));
+					die();
 				}
-				$batchId = (int) $batch['ID'];
-				$available = (float) $batch['QuantityRemaining'];
-				$deductQty = min($remainingToDeduct, $available);
-				$safeDeductQty = mysqli_real_escape_string($connectDB, number_format($deductQty, 2, '.', ''));
-				$connectDB->query("UPDATE inventory_batches SET QuantityRemaining = QuantityRemaining - $safeDeductQty WHERE ID = '$batchId'");
-				$connectDB->query("
-					INSERT INTO inventory_movements (Product_ID, ProductName, Batch_ID, MovementDate, MovementType, Quantity, ReferenceType, ReferenceNo, Notes)
-					VALUES ('$productId', '$name', '$batchId', '$saleDate', 'OUT', '$safeDeductQty', 'SALE', 'SaleID#$saleId', 'FIFO sale deduction for Sale#$deliveryNo')
-				");
-				$remainingToDeduct -= $deductQty;
+			}
+			$lineGrossProfit = round($total - $linePurchaseCost, 2);
+			$safeLinePurchaseCost = mysqli_real_escape_string($connectDB, number_format($linePurchaseCost, 2, '.', ''));
+			$safeLineGrossProfit = mysqli_real_escape_string($connectDB, number_format($lineGrossProfit, 2, '.', ''));
+			$connectDB->query("UPDATE sales SET TotalPurchaseCost = '$safeLinePurchaseCost', GrossProfit = '$safeLineGrossProfit' WHERE ID = '$saleId'");
+			if ($rowSalesType === 'LPG' && $lpgTransactionType !== 'NONE') {
+				$lpgResult = junkshop_lpg_apply_sale(
+					$connectDB,
+					$productId,
+					$name,
+					$baseQuantity,
+					$lpgTransactionType,
+					$lpgTankCondition,
+					$customerName,
+					$deliveryNo,
+					$saleId,
+					$saleDate
+				);
+				if (!$lpgResult['success']) {
+					header('Location: ' . $server . '?mainmenu=sell_product_others&sale_error=' . urlencode($lpgResult['message']));
+					die();
+				}
 			}
 		}
 	}
@@ -251,13 +331,15 @@
 		VALUES ('$customerName', '$deliveryNo', '$saleDate', $accountDueDateSql, '$safeAccountTotal', '$safeAccountPaid', '$safeAccountBalance', '$accountPaymentStatus')
 		ON DUPLICATE KEY UPDATE CustomerName = VALUES(CustomerName), SaleDate = VALUES(SaleDate), DueDate = VALUES(DueDate), TotalAmount = VALUES(TotalAmount), AmountPaid = VALUES(AmountPaid), Balance = VALUES(Balance), PaymentStatus = VALUES(PaymentStatus)
 	");
-	$connectDB->query("
-		INSERT INTO customers (CustomerName, Address, GoogleMap)
-		VALUES ('$customerName', '$customerAddress', '$customerGoogleMap')
-		ON DUPLICATE KEY UPDATE
-			Address = CASE WHEN VALUES(Address) <> '' THEN VALUES(Address) ELSE Address END,
-			GoogleMap = CASE WHEN VALUES(GoogleMap) <> '' THEN VALUES(GoogleMap) ELSE GoogleMap END
-	");
+	if (!junkshop_is_walk_in_customer($customerName)) {
+		$connectDB->query("
+			INSERT INTO customers (CustomerName, Address, GoogleMap)
+			VALUES ('$customerName', '$customerAddress', '$customerGoogleMap')
+			ON DUPLICATE KEY UPDATE
+				Address = CASE WHEN VALUES(Address) <> '' THEN VALUES(Address) ELSE Address END,
+				GoogleMap = CASE WHEN VALUES(GoogleMap) <> '' THEN VALUES(GoogleMap) ELSE GoogleMap END
+		");
+	}
 
 	header("Location: " . $server . "?mainmenu=sales_list");
 	die();

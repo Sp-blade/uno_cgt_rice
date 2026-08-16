@@ -125,6 +125,23 @@ body {
 	color: var(--primary-deep);
 }
 
+.nav-alert-badge {
+	margin-left: auto;
+	min-width: 1.45rem;
+	padding: 0.12rem 0.45rem;
+	border-radius: 999px;
+	background: #dc2626;
+	color: #fff;
+	font-size: 0.72rem;
+	font-weight: 800;
+	line-height: 1.2;
+	text-align: center;
+}
+
+.offcanvas .nav-link .nav-alert-badge {
+	margin-left: 0.45rem;
+}
+
 .nav-section {
 	display: flex;
 	flex-direction: column;
@@ -207,6 +224,11 @@ body {
 
 .margin-top {
 	margin-top: 1.25rem;
+}
+
+.purchase-stock-status-alert {
+	margin: 1.5rem 0 1.75rem;
+	padding: 0.95rem 1.15rem;
 }
 
 .row {
@@ -403,13 +425,42 @@ body {
 
 .dashboard-overview {
 	display: grid;
-	grid-template-columns: repeat(4, minmax(0, 1fr));
+	grid-template-columns: repeat(5, minmax(0, 1fr));
 	gap: 18px;
 	margin-bottom: 22px;
 }
 
-.expense-summary-cards {
-	grid-template-columns: repeat(3, minmax(0, 1fr));
+.dashboard-footer-metrics > .footer-metric {
+	flex: 1 1 0;
+	min-width: 0;
+}
+
+@media (min-width: 1200px) {
+	.dashboard-footer-metrics {
+		display: flex;
+		flex-wrap: nowrap;
+		gap: 12px;
+	}
+}
+
+.inventory-summary-cards {
+	grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.lpg-summary-cards {
+	grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+@media (max-width: 1199px) {
+	.lpg-summary-cards {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+	}
+}
+
+@media (max-width: 767px) {
+	.lpg-summary-cards {
+		grid-template-columns: minmax(0, 1fr);
+	}
 }
 
 .summary-card {
@@ -919,6 +970,18 @@ a.btn {
 
 .delivery-invoice-grand-total strong {
 	font-size: 1.25rem;
+}
+
+.purchase-invoice-preview-shell {
+	width: 100%;
+	max-width: 920px;
+	margin: 0 auto;
+}
+
+.purchase-invoice-preview-shell .delivery-invoice {
+	max-width: none;
+	margin: 0;
+	box-shadow: none;
 }
 
 .company-profile-preview {

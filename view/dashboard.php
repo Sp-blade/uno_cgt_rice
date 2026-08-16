@@ -6,6 +6,79 @@
 		return (float) ($row['total'] ?? 0);
 	}
 
+	function get_sales_loan_total($connectDB, $fromDate, $toDate) {
+		$query = "
+			SELECT COALESCE(SUM(GREATEST(TotalSalePrice - AmountPaid, 0)), 0) AS total
+			FROM sales
+			WHERE DATE(SaleDate) BETWEEN '$fromDate' AND '$toDate'
+		";
+		$result = $connectDB->query($query);
+		$row = $result ? $result->fetch_assoc() : ['total' => 0];
+		return (float) ($row['total'] ?? 0);
+	}
+
+	function get_realized_gross_profit_total($connectDB, $fromDate, $toDate) {
+		$safeFromDate = mysqli_real_escape_string($connectDB, $fromDate);
+		$safeToDate = mysqli_real_escape_string($connectDB, $toDate);
+
+		$paymentMargin = 0.0;
+		$paymentResult = $connectDB->query("
+			SELECT COALESCE(SUM(
+				CASE
+					WHEN delivery_totals.total_sale > 0 THEN
+						cp.Amount - (delivery_totals.total_cost * cp.Amount / delivery_totals.total_sale)
+					ELSE 0
+				END
+			), 0) AS total
+			FROM customer_payments cp
+			INNER JOIN (
+				SELECT
+					DeliveryNo,
+					SUM(TotalSalePrice) AS total_sale,
+					SUM(TotalPurchaseCost) AS total_cost
+				FROM sales
+				GROUP BY DeliveryNo
+			) delivery_totals ON delivery_totals.DeliveryNo = cp.DeliveryNo
+			WHERE DATE(cp.PaymentDate) BETWEEN '$safeFromDate' AND '$safeToDate'
+		");
+		if ($paymentResult) {
+			$paymentMargin = (float) (($paymentResult->fetch_assoc()['total'] ?? 0));
+		}
+
+		$saleMargin = 0.0;
+		$saleResult = $connectDB->query("
+			SELECT COALESCE(SUM(
+				CASE
+					WHEN d.total_sale > 0 THEN
+						GREATEST(d.amount_paid - COALESCE(cp_totals.cp_sum, 0), 0)
+						- (d.total_cost * GREATEST(d.amount_paid - COALESCE(cp_totals.cp_sum, 0), 0) / d.total_sale)
+					ELSE 0
+				END
+			), 0) AS total
+			FROM (
+				SELECT
+					DeliveryNo,
+					SUM(TotalSalePrice) AS total_sale,
+					SUM(TotalPurchaseCost) AS total_cost,
+					SUM(AmountPaid) AS amount_paid,
+					MIN(DATE(SaleDate)) AS sale_day
+				FROM sales
+				GROUP BY DeliveryNo
+			) d
+			LEFT JOIN (
+				SELECT DeliveryNo, COALESCE(SUM(Amount), 0) AS cp_sum
+				FROM customer_payments
+				GROUP BY DeliveryNo
+			) cp_totals ON cp_totals.DeliveryNo = d.DeliveryNo
+			WHERE d.sale_day BETWEEN '$safeFromDate' AND '$safeToDate'
+		");
+		if ($saleResult) {
+			$saleMargin = (float) (($saleResult->fetch_assoc()['total'] ?? 0));
+		}
+
+		return round($paymentMargin + $saleMargin, 2);
+	}
+
 	$today = date('Y-m-d');
 	$currentMonthStart = date('Y-m-01');
 	$currentMonthEnd = date('Y-m-t');
@@ -13,18 +86,22 @@
 	$toDate = isset($_GET['to_date']) && $_GET['to_date'] !== '' ? $_GET['to_date'] : $currentMonthEnd;
 	$expenseTotal = get_summary_total($connectDB, 'expenses', 'ExpenseDate', 'Amount', $fromDate, $toDate);
 	$salesTotal = get_summary_total($connectDB, 'sales', 'SaleDate', 'TotalSalePrice', $fromDate, $toDate);
+	$grossProfitTotal = get_realized_gross_profit_total($connectDB, $fromDate, $toDate);
+	$loanTotal = get_sales_loan_total($connectDB, $fromDate, $toDate);
 	$purchaseTotal = get_summary_total($connectDB, 'purchases', 'PurchaseDate', 'TotalPurchasePrice', $fromDate, $toDate);
-	$netTotal = $salesTotal - $purchaseTotal - $expenseTotal;
+	$netTotal = $grossProfitTotal - $expenseTotal;
 
 	$recentPurchases = $connectDB->query("
 		SELECT
-			ProductName,
+			Product_ID,
+			MAX(ProductName) AS ProductName,
 			SUM(Quantity) AS total_quantity,
 			AVG(ProductPrice) AS average_purchase_price,
 			SUM(TotalPurchasePrice) AS total_purchase_price
 		FROM purchases
 		WHERE DATE(PurchaseDate) BETWEEN '$fromDate' AND '$toDate'
-		GROUP BY ProductName
+		GROUP BY Product_ID
+		HAVING Product_ID > 0
 		ORDER BY total_purchase_price DESC, ProductName ASC
 	");
 	$recentExpenses = $connectDB->query("
@@ -60,7 +137,12 @@
 	<div class="summary-card">
 		<p class="metric-label">Total Sales</p>
 		<div class="summary-value">&#8369;<?php echo number_format($salesTotal, 2); ?></div>
-		<p class="summary-note">Product sales recorded this period.</p>
+		<p class="summary-note">Gross sales recorded this period.</p>
+	</div>
+	<div class="summary-card">
+		<p class="metric-label">Total Loan / Pautang</p>
+		<div class="summary-value text-warning">&#8369;<?php echo number_format($loanTotal, 2); ?></div>
+		<p class="summary-note">Unpaid and partial balances from sales this period.</p>
 	</div>
 	<div class="summary-card">
 		<p class="metric-label">Total Expenses</p>
@@ -70,12 +152,12 @@
 	<div class="summary-card">
 		<p class="metric-label">Stock Purchases</p>
 		<div class="summary-value">&#8369;<?php echo number_format($purchaseTotal, 2); ?></div>
-		<p class="summary-note">Stock-in costs in the selected date range.</p>
+		<p class="summary-note">Stock-in costs recorded in the selected date range.</p>
 	</div>
 	<div class="summary-card">
-		<p class="metric-label">Net Position</p>
+		<p class="metric-label">Net Income</p>
 		<div class="summary-value <?php echo $netTotal >= 0 ? 'text-success' : 'text-danger'; ?>">&#8369;<?php echo number_format($netTotal, 2); ?></div>
-		<p class="summary-note">Sales minus purchases and expenses.</p>
+		<p class="summary-note">Profit from cash collected on sales and loan payments, minus expenses.</p>
 	</div>
 </div>
 
@@ -139,12 +221,16 @@
 						<tbody>
 							<?php if ($recentPurchases && $recentPurchases->num_rows > 0): ?>
 								<?php while ($purchase = $recentPurchases->fetch_assoc()): ?>
+									<?php
+										$purchaseProductId = (int) ($purchase['Product_ID'] ?? 0);
+										$purchaseProductName = trim((string) ($purchase['ProductName'] ?? ''));
+									?>
 									<tr>
-										<td><?php echo htmlspecialchars($purchase['ProductName']); ?></td>
+										<td><?php echo htmlspecialchars($purchaseProductName); ?></td>
 										<td class="text-end"><?php echo number_format($purchase['total_quantity'], 2); ?></td>
 										<td class="text-end">&#8369;<?php echo number_format($purchase['average_purchase_price'], 2); ?></td>
 										<td class="text-end">&#8369;<?php echo number_format($purchase['total_purchase_price'], 2); ?></td>
-										<td><a class="btn btn-sm btn-info" href="?mainmenu=view_purchase_product&product_name=<?php echo urlencode($purchase['ProductName']); ?>&from_date=<?php echo urlencode($fromDate); ?>&to_date=<?php echo urlencode($toDate); ?>&return_to=<?php echo $returnTo; ?>">View</a></td>
+										<td><a class="btn btn-sm btn-info" href="?mainmenu=view_purchase_product&product_id=<?php echo $purchaseProductId; ?>&from_date=<?php echo urlencode($fromDate); ?>&to_date=<?php echo urlencode($toDate); ?>&return_to=<?php echo $returnTo; ?>">View</a></td>
 									</tr>
 								<?php endwhile; ?>
 							<?php else: ?>
@@ -289,21 +375,25 @@
 	</div>
 </div>
 
-<div class="row fixed-footer">
-	<div class="col-md-3 col-6 footer-metric">
-		<p class="metric-label">Purchases</p>
-		<div class="totalprice">&#8369;<?php echo number_format($purchaseTotal, 2); ?></div>
-	</div>
-	<div class="col-md-3 col-6 footer-metric">
-		<p class="metric-label">Expenses</p>
-		<div class="totalprice">&#8369;<?php echo number_format($expenseTotal, 2); ?></div>
-	</div>
-	<div class="col-md-3 col-6 footer-metric">
-		<p class="metric-label">Sales</p>
+<div class="row fixed-footer dashboard-footer-metrics">
+	<div class="col-6 col-xl footer-metric">
+		<p class="metric-label">Total Sales</p>
 		<div class="totalprice">&#8369;<?php echo number_format($salesTotal, 2); ?></div>
 	</div>
-	<div class="col-md-3 col-6 footer-metric">
-		<p class="metric-label">Net Position</p>
+	<div class="col-6 col-xl footer-metric">
+		<p class="metric-label">Total Loan / Pautang</p>
+		<div class="totalprice text-warning">&#8369;<?php echo number_format($loanTotal, 2); ?></div>
+	</div>
+	<div class="col-6 col-xl footer-metric">
+		<p class="metric-label">Total Expenses</p>
+		<div class="totalprice">&#8369;<?php echo number_format($expenseTotal, 2); ?></div>
+	</div>
+	<div class="col-6 col-xl footer-metric">
+		<p class="metric-label">Stock Purchases</p>
+		<div class="totalprice">&#8369;<?php echo number_format($purchaseTotal, 2); ?></div>
+	</div>
+	<div class="col-6 col-xl footer-metric">
+		<p class="metric-label">Net Income</p>
 		<div class="totalprice <?php echo $netTotal >= 0 ? 'text-success' : 'text-danger'; ?>">&#8369;<?php echo number_format($netTotal, 2); ?></div>
 	</div>
 </div>

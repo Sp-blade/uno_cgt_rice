@@ -19,8 +19,20 @@
         include "process/manage_customer.php";
         exit;
     }
-    if ($mainMenu === "return_item") {
-        include "process/return_item.php";
+    if ($mainMenu === "save_customer_payment") {
+        include "process/save_customer_payment.php";
+        exit;
+    }
+    if ($mainMenu === "delete_customer_payment") {
+        include "process/delete_customer_payment.php";
+        exit;
+    }
+    if ($mainMenu === "update_customer_due_date") {
+        include "process/update_customer_due_date.php";
+        exit;
+    }
+    if ($mainMenu === "return_lpg_tank" && $_SERVER['REQUEST_METHOD'] === 'POST') {
+        include "process/return_lpg_tank.php";
         exit;
     }
     if ($mainMenu === "restore_database" && $_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -47,13 +59,16 @@
         exit;
     }
 
+    $inventoryAlertCount = junkshop_count_stock_limit_alerts($connectDB);
+    $customerDueAlertCount = junkshop_count_due_date_alerts($connectDB);
+
     require "view/head.php";
 
     $activeMenu = $mainMenu;
-    $purchaseMenus = ['purchase_product', 'purchase_list', 'view_invoice', 'purchase_invoice', 'view_purchase_product'];
+    $purchaseMenus = ['purchase_product', 'purchase_list', 'view_invoice', 'purchase_invoice', 'view_purchase_product', 'print_purchase_invoice'];
     $expenseMenus = ['expenses', 'expenses_list', 'view_expense'];
-    $salesMenus = ['sell_product_others', 'sell_product_lpg', 'sales_list', 'view_sale', 'view_sale_product'];
-    $inventoryMenus = ['inventory'];
+    $salesMenus = ['sell_product_others', 'sell_product_lpg', 'sales_list', 'view_sale', 'view_sale_product', 'print_sale_receipt'];
+    $inventoryMenus = ['inventory', 'lpg_inventory'];
     $customerMenus = ['customers'];
     $reportMenus = [];
     $settingsMenus = ['company_profile', 'product_list', 'download_database', 'expense_category_list', 'view_expense_category'];
@@ -61,9 +76,10 @@
     $pageTitles = [
         '' => 'Dashboard',
         'product_list' => 'Product List',
-        'purchase_product' => 'Stock Purchase',
+        'purchase_product' => 'Purchase Stocks',
         'purchase_list' => 'Purchase History',
         'view_invoice' => 'Invoice Details',
+        'print_purchase_invoice' => 'Purchase Invoice',
         'view_purchase_product' => 'Stock Purchase Details',
         'expenses' => 'Expenses',
         'expenses_list' => 'Expenses History',
@@ -75,8 +91,10 @@
         'sale_invoice' => 'Sale Receipt',
         'sales_list' => 'Sales History',
         'view_sale' => 'Sale Details',
+        'print_sale_receipt' => 'Sale Receipt',
         'view_sale_product' => 'Sold Product Details',
         'inventory' => 'Inventory Monitor',
+        'lpg_inventory' => 'LPG Inventory',
         'company_profile' => 'Company Profile',
         'download_database' => 'Database Backup',
     ];
@@ -122,7 +140,7 @@
                     </button>
                     <div id="navPurchases" class="collapse <?php echo in_array($activeMenu, $purchaseMenus) ? 'show' : ''; ?>">
                         <div class="nav-submenu">
-                            <a class="sub-link <?php echo ($activeMenu == 'purchase_product') ? 'active' : ''; ?>" href="?mainmenu=purchase_product">Add Stock Purchase</a>
+                            <a class="sub-link <?php echo ($activeMenu == 'purchase_product') ? 'active' : ''; ?>" href="?mainmenu=purchase_product">Purchase Stocks</a>
                             <a class="sub-link <?php echo ($activeMenu == 'purchase_list') ? 'active' : ''; ?>" href="?mainmenu=purchase_list">Purchase History</a>
                         </div>
                     </div>
@@ -141,14 +159,28 @@
                     </div>
                 </div>
 
-                <a class="nav-link <?php echo in_array($activeMenu, $inventoryMenus) ? 'active' : ''; ?>" href="?mainmenu=inventory">
-                    <i class="bi bi-box-seam"></i>
-                    <span>Inventory</span>
-                </a>
+                <div class="nav-section">
+                    <button class="nav-link nav-section-toggle <?php echo in_array($activeMenu, $inventoryMenus) ? '' : 'collapsed'; ?>" type="button" data-bs-toggle="collapse" data-bs-target="#navInventory" aria-expanded="<?php echo in_array($activeMenu, $inventoryMenus) ? 'true' : 'false'; ?>">
+                        <span><i class="bi bi-box-seam"></i> Inventory</span>
+                        <?php if ($inventoryAlertCount > 0): ?>
+                            <span class="nav-alert-badge" title="Stock limit reached"><?php echo (int) $inventoryAlertCount; ?></span>
+                        <?php endif; ?>
+                        <i class="bi bi-chevron-down"></i>
+                    </button>
+                    <div id="navInventory" class="collapse <?php echo in_array($activeMenu, $inventoryMenus) ? 'show' : ''; ?>">
+                        <div class="nav-submenu">
+                            <a class="sub-link <?php echo ($activeMenu == 'inventory') ? 'active' : ''; ?>" href="?mainmenu=inventory">All Products</a>
+                            <a class="sub-link <?php echo ($activeMenu == 'lpg_inventory') ? 'active' : ''; ?>" href="?mainmenu=lpg_inventory">LPG Monitor</a>
+                        </div>
+                    </div>
+                </div>
 
                 <a class="nav-link <?php echo in_array($activeMenu, $customerMenus) ? 'active' : ''; ?>" href="?mainmenu=customers">
                     <i class="bi bi-people"></i>
                     <span>Customers</span>
+                    <?php if ($customerDueAlertCount > 0): ?>
+                        <span class="nav-alert-badge" title="Due or overdue loans"><?php echo (int) $customerDueAlertCount; ?></span>
+                    <?php endif; ?>
                 </a>
 
                 <div class="nav-section">
@@ -196,6 +228,10 @@
                         if(isset($_GET['delete_product'])) include "process/delete_product.php";
                         $invoiceNo = $_GET['invoiceNo'];
                         require "view/view_invoice.php";
+                    break;
+
+                    case "print_purchase_invoice":
+                        require "view/print_purchase_invoice.php";
                     break;
 
                     case "product_list":
@@ -272,12 +308,20 @@
                         require "view/view_sale.php";
                     break;
 
+                    case "print_sale_receipt":
+                        require "view/print_sale_receipt.php";
+                    break;
+
                     case "view_sale_product":
                         require "view/view_sale_product.php";
                     break;
 
                     case "inventory":
                         require "view/inventory.php";
+                    break;
+
+                    case "lpg_inventory":
+                        require "view/lpg_inventory.php";
                     break;
 
                     case "customers":
@@ -313,12 +357,17 @@
             <a class="nav-link <?php echo ($activeMenu == '') ? 'active' : ''; ?>" href="?">Dashboard</a>
             <a class="nav-link <?php echo (in_array($activeMenu, ['sell_product_others', 'sell_product_lpg'])) ? 'active' : ''; ?>" href="?mainmenu=sell_product_others">Sell Product</a>
             <a class="nav-link <?php echo ($activeMenu == 'sales_list') ? 'active' : ''; ?>" href="?mainmenu=sales_list">Sales History</a>
-            <a class="nav-link <?php echo ($activeMenu == 'purchase_product') ? 'active' : ''; ?>" href="?mainmenu=purchase_product">Add Stock Purchase</a>
+            <a class="nav-link <?php echo ($activeMenu == 'purchase_product') ? 'active' : ''; ?>" href="?mainmenu=purchase_product">Purchase Stocks</a>
             <a class="nav-link <?php echo ($activeMenu == 'purchase_list') ? 'active' : ''; ?>" href="?mainmenu=purchase_list">Purchase History</a>
             <a class="nav-link <?php echo ($activeMenu == 'expenses') ? 'active' : ''; ?>" href="?mainmenu=expenses">Expenses</a>
             <a class="nav-link <?php echo ($activeMenu == 'expenses_list') ? 'active' : ''; ?>" href="?mainmenu=expenses_list">Expenses History</a>
-            <a class="nav-link <?php echo ($activeMenu == 'inventory') ? 'active' : ''; ?>" href="?mainmenu=inventory">Inventory</a>
-            <a class="nav-link <?php echo ($activeMenu == 'customers') ? 'active' : ''; ?>" href="?mainmenu=customers">Customers</a>
+            <a class="nav-link <?php echo ($activeMenu == 'inventory') ? 'active' : ''; ?>" href="?mainmenu=inventory">
+                Inventory<?php if ($inventoryAlertCount > 0): ?> <span class="nav-alert-badge"><?php echo (int) $inventoryAlertCount; ?></span><?php endif; ?>
+            </a>
+            <a class="nav-link <?php echo ($activeMenu == 'lpg_inventory') ? 'active' : ''; ?>" href="?mainmenu=lpg_inventory">LPG Monitor</a>
+            <a class="nav-link <?php echo ($activeMenu == 'customers') ? 'active' : ''; ?>" href="?mainmenu=customers">
+                Customers<?php if ($customerDueAlertCount > 0): ?> <span class="nav-alert-badge"><?php echo (int) $customerDueAlertCount; ?></span><?php endif; ?>
+            </a>
             <a class="nav-link <?php echo ($activeMenu == 'product_list') ? 'active' : ''; ?>" href="?mainmenu=product_list">Product List</a>
             <a class="nav-link <?php echo (in_array($activeMenu, ['expense_category_list', 'view_expense_category'])) ? 'active' : ''; ?>" href="?mainmenu=expense_category_list">Expense Categories</a>
             <a class="nav-link <?php echo ($activeMenu == 'download_database') ? 'active' : ''; ?>" href="?mainmenu=download_database">Database Backup</a>

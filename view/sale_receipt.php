@@ -29,6 +29,7 @@
     $dueDates = isset($_POST['due_date']) && is_array($_POST['due_date']) ? $_POST['due_date'] : [];
 
     $productNames = isset($_POST['product_name']) && is_array($_POST['product_name']) ? $_POST['product_name'] : [];
+    $productIds = isset($_POST['product_id']) && is_array($_POST['product_id']) ? $_POST['product_id'] : [];
     $productQuantities = isset($_POST['product_quantity']) && is_array($_POST['product_quantity']) ? $_POST['product_quantity'] : [];
     $productPrices = isset($_POST['product_price']) && is_array($_POST['product_price']) ? $_POST['product_price'] : [];
     $saleUnits = isset($_POST['sale_unit']) && is_array($_POST['sale_unit']) ? $_POST['sale_unit'] : [];
@@ -61,6 +62,11 @@
 
         $lpgType = isset($lpgTypes[$index]) ? strtoupper(trim($lpgTypes[$index])) : 'NONE';
         $lpgCondition = isset($lpgConditions[$index]) ? trim($lpgConditions[$index]) : '';
+        $productId = (int) ($productIds[$index] ?? 0);
+        $lpgSoldPrices = null;
+        if ($lpgType === 'SOLD') {
+            $lpgSoldPrices = junkshop_lpg_sold_receipt_prices($connectDB, $productId, $price);
+        }
 
         $rowTotal = $quantity * $price;
         $grandTotal += $rowTotal;
@@ -106,6 +112,8 @@
             'total' => $rowTotal,
             'lpg_type' => $lpgType,
             'lpg_condition' => $lpgCondition,
+            'lpg_refill_price' => $lpgSoldPrices ? (float) ($lpgSoldPrices['refill_price'] ?? 0) : 0,
+            'lpg_tank_price' => $lpgSoldPrices ? (float) ($lpgSoldPrices['tank_price'] ?? 0) : 0,
             'payment_status' => $rowPaymentStatus,
             'amount_paid' => $rowAmountPaid,
             'balance' => $rowBalance,
@@ -191,6 +199,10 @@
 									<div class="item-meta"><?php echo number_format($item['qty'], 2); ?> <?php echo htmlspecialchars(junkshop_unit_label($item['unit'])); ?> x &#8369;<?php echo number_format($item['price'], 2); ?></div>
 									<?php if ($item['lpg_type'] === 'SWAPPED'): ?>
 										<div class="item-meta">Tank: Swapped<?php echo $item['lpg_condition'] !== '' ? ' (' . htmlspecialchars($item['lpg_condition']) . ')' : ''; ?></div>
+									<?php endif; ?>
+									<?php if ($item['lpg_type'] === 'SOLD'): ?>
+										<div class="item-meta">Refill Price: &#8369;<?php echo number_format((float) ($item['lpg_refill_price'] ?? 0), 2); ?></div>
+										<div class="item-meta">Tank Price: &#8369;<?php echo number_format((float) ($item['lpg_tank_price'] ?? 0), 2); ?></div>
 									<?php endif; ?>
 									<?php if ($isRegisteredCustomer && $item['payment_status'] !== 'PAID'): ?>
 										<?php

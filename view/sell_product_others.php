@@ -12,15 +12,32 @@
             p.ProductName AS name,
             COALESCE(NULLIF(p.SellingPrice, 0), p.ProductPrice) AS price,
             COALESCE(p.AlternateSellingPrice, 0) AS alternate_price,
+            COALESCE(NULLIF(p.LpgRefillPrice, 0), NULLIF(p.SellingPrice, 0), p.ProductPrice) AS lpg_refill_price,
+            COALESCE(NULLIF(p.LpgNewTankPrice, 0), NULLIF(p.SellingPrice, 0), p.ProductPrice) AS lpg_new_tank_price,
             COALESCE(p.ProductBaseUnit, 'pc') AS unit,
             COALESCE(p.CanConvertToKg, 0) AS can_convert,
             COALESCE(p.KgEquivalentQty, 0) AS equiv_qty,
+            COALESCE(p.AlternateSaleUnit, '') AS alternate_unit,
             COALESCE(p.ProductType, '') AS type,
-            COALESCE(SUM(b.QuantityRemaining), 0) AS stock
+            COALESCE(SUM(b.QuantityRemaining), 0) AS stock,
+            COALESCE((
+                SELECT ib.UnitCost
+                FROM inventory_batches ib
+                WHERE ib.Product_ID = p.Product_ID
+                    AND ib.QuantityRemaining > 0
+                ORDER BY ib.BatchDate ASC, ib.ID ASC
+                LIMIT 1
+            ), (
+                SELECT pu.ProductPrice
+                FROM purchases pu
+                WHERE pu.Product_ID = p.Product_ID
+                ORDER BY pu.PurchaseDate DESC, pu.ID DESC
+                LIMIT 1
+            ), 0) AS purchase_price
         FROM products p
         LEFT JOIN inventory_batches b ON b.Product_ID = p.Product_ID
-        WHERE p.IsActive = 1 $productWhere
-        GROUP BY p.Product_ID, p.ProductName, p.SellingPrice, p.AlternateSellingPrice, p.ProductPrice, p.ProductBaseUnit, p.CanConvertToKg, p.KgEquivalentQty, p.ProductType
+        WHERE p.IsActive = 1 AND COALESCE(p.IsSubProduct, 0) = 0 $productWhere
+        GROUP BY p.Product_ID, p.ProductName, p.SellingPrice, p.AlternateSellingPrice, p.LpgRefillPrice, p.LpgNewTankPrice, p.ProductPrice, p.ProductBaseUnit, p.CanConvertToKg, p.KgEquivalentQty, p.AlternateSaleUnit, p.ProductType
         ORDER BY p.ProductName ASC
     ");
     if ($productResult && $productResult->num_rows > 0) {
@@ -30,7 +47,7 @@
     }
 
     $customers = [];
-    $customerResult = $connectDB->query("SELECT CustomerName, Address, GoogleMap FROM customers ORDER BY CustomerName ASC");
+    $customerResult = $connectDB->query("SELECT CustomerName, Address, GoogleMap FROM customers WHERE CustomerName <> '" . mysqli_real_escape_string($connectDB, junkshop_walk_in_customer_name()) . "' ORDER BY CustomerName ASC");
     if ($customerResult && $customerResult->num_rows > 0) {
         while ($row = $customerResult->fetch_assoc()) {
             $customers[] = $row;
@@ -49,6 +66,8 @@
     <input type="hidden" name="previousmenu" value="sell_product_others" />
     
     <!-- Hidden fields for backend processing -->
+    
+    <!-- Customer address/map submitted via hidden fields -->
     <input type="hidden" name="customer_address" id="customer_address" value="" />
     <input type="hidden" name="customer_google_map" id="customer_google_map" value="" />
     
@@ -65,6 +84,8 @@
                 <div class="alert alert-danger" role="alert">Not enough stock for one or more selected products.</div>
             <?php elseif ($saleError === 'empty'): ?>
                 <div class="alert alert-danger" role="alert">Add at least one valid product before saving a sale.</div>
+            <?php elseif ($saleError !== ''): ?>
+                <div class="alert alert-danger" role="alert"><?php echo htmlspecialchars($saleError); ?></div>
             <?php endif; ?>
 
             <datalist id="customer_suggestions">
@@ -86,15 +107,27 @@
                     <label for="customer_name">Customer Name</label>
                     <input type="text" class="form-control" id="customer_name" name="customer_name" value="Walk-in Customer" list="customer_suggestions" onblur="applyCustomerSelection()" required autocomplete="off" />
                 </div>
-                <div class="col-md-2">
+                <div class="col-md-3">
                     <label for="sale_date">Date &amp; Time</label>
                     <input type="datetime-local" class="form-control" id="sale_date" name="sale_date" value="<?php echo junkshop_datetime_input_value(date('Y-m-d H:i:s')); ?>" required />
                 </div>
             </div>
 
+            <div class="row custom-row mb-4 pb-2 registered-only customer-detail-fields align-items-start" style="display: none;">
+                <div class="col-md-5">
+                    <label for="customer_address_visible">Address</label>
+                    <input type="text" class="form-control" id="customer_address_visible" placeholder="Enter customer address" autocomplete="off" />
+                    <small class="text-muted d-block mt-1">Add address details for this new customer.</small>
+                </div>
+                <div class="col-md-5">
+                    <label for="customer_google_map_visible">Google Map Link</label>
+                    <input type="url" class="form-control" id="customer_google_map_visible" placeholder="https://maps.google.com/..." autocomplete="off" />
+                </div>
+            </div>
+
             <datalist id="sale_product_suggestions">
                 <?php foreach ($products as $product): ?>
-                    <option value="<?php echo htmlspecialchars($product['name']); ?>" data-id="<?php echo (int) $product['id']; ?>" data-price="<?php echo htmlspecialchars((string) $product['price']); ?>" data-alternate-price="<?php echo htmlspecialchars((string) $product['alternate_price']); ?>" data-unit="<?php echo htmlspecialchars($product['unit']); ?>" data-can-convert="<?php echo (int) $product['can_convert']; ?>" data-equiv-qty="<?php echo htmlspecialchars((string) $product['equiv_qty']); ?>" data-type="<?php echo htmlspecialchars($product['type']); ?>" data-stock="<?php echo htmlspecialchars((string) $product['stock']); ?>"></option>
+                    <option value="<?php echo htmlspecialchars($product['name']); ?>" data-id="<?php echo (int) $product['id']; ?>" data-price="<?php echo htmlspecialchars((string) $product['price']); ?>" data-alternate-price="<?php echo htmlspecialchars((string) $product['alternate_price']); ?>" data-unit="<?php echo htmlspecialchars($product['unit']); ?>" data-can-convert="<?php echo (int) $product['can_convert']; ?>" data-equiv-qty="<?php echo htmlspecialchars((string) $product['equiv_qty']); ?>" data-alternate-unit="<?php echo htmlspecialchars((string) $product['alternate_unit']); ?>" data-type="<?php echo htmlspecialchars($product['type']); ?>" data-stock="<?php echo htmlspecialchars((string) $product['stock']); ?>" data-purchase-price="<?php echo htmlspecialchars((string) $product['purchase_price']); ?>"></option>
                 <?php endforeach; ?>
             </datalist>
 
@@ -102,7 +135,7 @@
             <div id="dynamicSaleFields">
                 <div class="transaction-entry-row sale-row">
                     <div class="row custom-row align-items-end g-3 sale-item-line">
-                        <div class="col-sm-5 product-name-cell">
+                        <div class="col-sm-4 product-name-cell">
                             <label>Product Name</label>
                             <input type="text" class="form-control" name="product_name[]" list="sale_product_suggestions" onblur="applyProductSelection(this)" required />
                             <input type="hidden" name="product_id[]" value="" />
@@ -136,16 +169,21 @@
                         </div>
                     </div>
                     <div class="row custom-row g-3 lpg-options mt-2" style="display: none;">
-                        <div class="col-md-3">
-                            <label>LPG Tank</label>
+                        <div class="col-md-4">
+                            <label>LPG Transaction</label>
                             <select class="form-select" name="lpg_transaction_type[]" onchange="toggleLpgCondition(this)">
-                                <option value="NONE">No Tank Swap</option>
-                                <option value="SWAPPED">Swapped Tank</option>
+                                <option value="SWAPPED" selected>Regular Sale (Swap Out)</option>
+                                <option value="SOLD">New Tank with LPG</option>
+                                <option value="LENT" class="lpg-lend-option">Lend Tank</option>
                             </select>
                         </div>
-                        <div class="col-md-6 lpg-condition-wrap" style="display: none;">
-                            <label>Tank Condition / Note</label>
-                            <input type="text" class="form-control" name="lpg_tank_condition[]" placeholder="Example: dented, rusty, good condition" />
+                        <div class="col-md-4 lpg-condition-wrap">
+                            <label class="lpg-condition-label">Empty Tank Condition</label>
+                            <select class="form-select" name="lpg_tank_condition[]">
+                                <option value="">Select condition</option>
+                                <option value="NEW">New</option>
+                                <option value="OLD">Old</option>
+                            </select>
                         </div>
                     </div>
                     <div class="row custom-row g-3 registered-only row-payment-options mt-2" style="display: none;">
@@ -163,7 +201,12 @@
                         </div>
                         <div class="col-md-2 row-loan-partial-only" style="display: none;">
                             <label>Due Date</label>
-                            <input type="date" class="form-control" name="due_date[]" />
+                            <input type="date" class="form-control sale-due-date-input" name="due_date[]" />
+                        </div>
+                    </div>
+                    <div class="row custom-row sale-loss-warning-row mt-2" style="display: none;">
+                        <div class="col-12">
+                            <div class="alert alert-warning py-2 mb-0 sale-loss-warning" role="alert"></div>
                         </div>
                     </div>
                 </div>
@@ -178,11 +221,11 @@
             <input type="hidden" id="saleAmountDueInput" name="amount_due" value="0.00" />
             <input type="submit" class="btn btn-success w-100" value="Continue">
         </div>
-        <div class="col-md-1 col-6 footer-metric"><p class="metric-label">Item Count</p><div class="totalprice"><span id="saleItemCount">1</span></div></div>
+        <div class="col-md-1 col-6 footer-metric"><p class="metric-label">Count</p><div class="totalprice"><span id="saleItemCount">1</span></div></div>
         <div class="col-md-2 col-6 footer-metric"><p class="metric-label">Grand Total</p><div class="totalprice">&#8369;<span id="saleGrandTotal">0.00</span></div></div>
         <div class="col-md-2 col-6 footer-metric"><p class="metric-label">Amount Due</p><div class="totalprice text-warning">&#8369;<span id="saleAmountDue">0.00</span></div></div>
         <div class="col-md-1 col-6 footer-metric">
-            <p class="metric-label">Cash Given</p>
+            <p class="metric-label">Cash</p>
             <input type="number" step="0.01" min="0" class="form-control form-control-sm border-success" id="cash_given" name="cash_given" oninput="calculateSaleTotal()" />
         </div>
         <div class="col-md-2 col-6 footer-metric">
@@ -193,44 +236,101 @@
 </form>
 
 <script>
-    const unitLabels = { pc: 'Pcs', kg: 'KG', sack: 'Sack', tray: 'Tray' };
+    const unitLabels = { pc: 'Pcs', kg: 'KG', sack: 'Sack', tray: 'Tray', pack: 'Pack', tank: 'Tank' };
 
     function normalizeUnit(unit) {
         const value = String(unit || 'pc').toLowerCase();
-        return ['pc', 'kg', 'sack', 'tray'].includes(value) ? value : 'pc';
+        return ['pc', 'kg', 'sack', 'tray', 'pack', 'tank'].includes(value) ? value : 'pc';
     }
 
-    function getAlternateUnit(baseUnit) {
-        switch (normalizeUnit(baseUnit)) {
-            case 'sack': return 'kg';
-            case 'tray': return 'pc';
-            case 'pc': return 'kg';
-            default: return null;
+    function getAlternateUnit(baseUnit, alternateSaleUnit) {
+        const base = normalizeUnit(baseUnit);
+        const alternate = normalizeUnit(alternateSaleUnit);
+        if (!alternate || alternate === base) {
+            return null;
         }
+        return alternate;
     }
 
-    function canConvertUnits(baseUnit, canConvert, equivQty) {
-        return Number(canConvert) === 1 && Number(equivQty) > 0 && getAlternateUnit(baseUnit) !== null;
+    function usesLegacyPcKgConversion(baseUnit, alternateUnit) {
+        return normalizeUnit(baseUnit) === 'pc' && normalizeUnit(alternateUnit) === 'kg';
     }
 
-    function saleQtyToBase(quantity, saleUnit, baseUnit, equivQty) {
+    function canConvertUnits(baseUnit, canConvert, equivQty, alternateSaleUnit) {
+        return Number(canConvert) === 1 && Number(equivQty) > 0 && getAlternateUnit(baseUnit, alternateSaleUnit) !== null;
+    }
+
+    function saleQtyToBase(quantity, saleUnit, baseUnit, equivQty, alternateSaleUnit) {
         quantity = Number(quantity) || 0;
         baseUnit = normalizeUnit(baseUnit);
         saleUnit = normalizeUnit(saleUnit);
         equivQty = Number(equivQty) || 0;
-        if (saleUnit === baseUnit || equivQty <= 0) return quantity;
-        const alternateUnit = getAlternateUnit(baseUnit);
-        if (alternateUnit === null || saleUnit !== alternateUnit) return quantity;
-        if (baseUnit === 'pc' && saleUnit === 'kg') return quantity * equivQty;
+        const alternateUnit = getAlternateUnit(baseUnit, alternateSaleUnit);
+        if (saleUnit === baseUnit || equivQty <= 0 || !alternateUnit) return quantity;
+        if (saleUnit !== alternateUnit) return quantity;
+        if (usesLegacyPcKgConversion(baseUnit, alternateUnit)) return quantity * equivQty;
         return quantity / equivQty;
     }
 
-    function baseQtyToAlternate(quantity, baseUnit, equivQty) {
+    function salePriceToBase(sellPrice, saleUnit, baseUnit, equivQty, alternateSaleUnit) {
+        sellPrice = Number(sellPrice) || 0;
+        if (sellPrice <= 0) return 0;
+        const baseQtyPerSaleUnit = saleQtyToBase(1, saleUnit, baseUnit, equivQty, alternateSaleUnit);
+        if (baseQtyPerSaleUnit <= 0) return sellPrice;
+        return sellPrice / baseQtyPerSaleUnit;
+    }
+
+    function formatMoney(value) {
+        return '₱' + (Number(value) || 0).toFixed(2);
+    }
+
+    function updateRowLossWarning(row) {
+        const warningRow = row.querySelector('.sale-loss-warning-row');
+        const warningBox = row.querySelector('.sale-loss-warning');
+        if (!warningRow || !warningBox) return false;
+
+        const productName = row.querySelector('input[name="product_name[]"]')?.value.trim() || '';
+        const sellPrice = parseFloat(row.querySelector('input[name="product_price[]"]')?.value) || 0;
+        const purchasePricePerBase = parseFloat(row.dataset.purchasePrice || '0') || 0;
+        const baseUnit = normalizeUnit(row.dataset.baseUnit || 'pc');
+        const saleUnit = normalizeUnit(row.querySelector('.sale-unit-select')?.value || baseUnit);
+        const equivQty = row.dataset.equivQty || '0';
+        const alternateSaleUnit = row.dataset.alternateUnit || '';
+
+        if (productName === '' || sellPrice <= 0 || purchasePricePerBase <= 0) {
+            warningRow.style.display = 'none';
+            warningBox.textContent = '';
+            return false;
+        }
+
+        const sellPricePerBase = salePriceToBase(sellPrice, saleUnit, baseUnit, equivQty, alternateSaleUnit);
+        if (sellPricePerBase > purchasePricePerBase) {
+            warningRow.style.display = 'none';
+            warningBox.textContent = '';
+            return false;
+        }
+
+        const baseLabel = unitLabels[baseUnit] || baseUnit.toUpperCase();
+        const saleLabel = unitLabels[saleUnit] || saleUnit.toUpperCase();
+        let message = 'Warning: Sell price (' + formatMoney(sellPrice) + '/' + saleLabel;
+
+        if (saleUnit !== baseUnit) {
+            message += ', equivalent to ' + formatMoney(sellPricePerBase) + '/' + baseLabel;
+        }
+
+        message += ') is equal to or lower than the current purchase price (' + formatMoney(purchasePricePerBase) + '/' + baseLabel + '). This may result in a loss.';
+        warningBox.textContent = message;
+        warningRow.style.display = 'flex';
+        return true;
+    }
+
+    function baseQtyToAlternate(quantity, baseUnit, equivQty, alternateSaleUnit) {
         quantity = Number(quantity) || 0;
         baseUnit = normalizeUnit(baseUnit);
         equivQty = Number(equivQty) || 0;
-        if (equivQty <= 0) return null;
-        if (baseUnit === 'pc') return quantity / equivQty;
+        const alternateUnit = getAlternateUnit(baseUnit, alternateSaleUnit);
+        if (equivQty <= 0 || !alternateUnit) return null;
+        if (usesLegacyPcKgConversion(baseUnit, alternateUnit)) return quantity / equivQty;
         return quantity * equivQty;
     }
 
@@ -238,13 +338,14 @@
         const baseUnit = normalizeUnit(row.dataset.baseUnit || 'pc');
         const canConvert = Number(row.dataset.canConvert || 0) === 1;
         const equivQty = Number(row.dataset.equivQty || 0);
+        const alternateSaleUnit = row.dataset.alternateUnit || '';
         const select = row.querySelector('.sale-unit-select');
         const conversionInput = row.querySelector('input[name="kg_conversion_qty[]"]');
         const qtyLabel = row.querySelector('.sale-qty-label');
         if (!select || !conversionInput) return;
 
-        const alternateUnit = getAlternateUnit(baseUnit);
-        const supportsConversion = canConvertUnits(baseUnit, canConvert ? 1 : 0, equivQty);
+        const alternateUnit = getAlternateUnit(baseUnit, alternateSaleUnit);
+        const supportsConversion = canConvertUnits(baseUnit, canConvert ? 1 : 0, equivQty, alternateSaleUnit);
         select.innerHTML = '';
         const baseOption = document.createElement('option');
         baseOption.value = baseUnit;
@@ -269,6 +370,17 @@
     }
 
     function getSaleUnitPrice(row) {
+        const lpgPanel = row.querySelector('.lpg-options');
+        const isLpgVisible = lpgPanel && lpgPanel.style.display !== 'none';
+        const tankSelect = row.querySelector('select[name="lpg_transaction_type[]"]');
+        if (isLpgVisible && tankSelect) {
+            const refillPrice = Number(row.dataset.lpgRefillPrice || row.dataset.basePrice || 0);
+            const newTankPrice = Number(row.dataset.lpgNewTankPrice || refillPrice || 0);
+            if (tankSelect.value === 'SOLD') {
+                return newTankPrice > 0 ? newTankPrice : refillPrice;
+            }
+            return refillPrice > 0 ? refillPrice : Number(row.dataset.basePrice || 0);
+        }
         const baseUnit = normalizeUnit(row.dataset.baseUnit || 'pc');
         const selectedUnit = normalizeUnit(row.querySelector('.sale-unit-select')?.value || baseUnit);
         const basePrice = Number(row.dataset.basePrice || 0);
@@ -293,27 +405,91 @@
         calculateSaleTotal();
     }
 
+    function updateLpgTransactionOptions() {
+        const isWalkIn = document.getElementById('customer_type').value === 'walk_in';
+        document.querySelectorAll('select[name="lpg_transaction_type[]"]').forEach(function (select) {
+            const lentOption = select.querySelector('option[value="LENT"]');
+            if (lentOption) {
+                lentOption.hidden = isWalkIn;
+                lentOption.disabled = isWalkIn;
+            }
+            if (isWalkIn && select.value === 'LENT') {
+                select.value = 'SWAPPED';
+                toggleLpgCondition(select);
+            }
+        });
+    }
+
     function toggleCustomerType() {
         const type = document.getElementById('customer_type').value;
         const nameInput = document.getElementById('customer_name');
         const rowPaymentSections = document.querySelectorAll('.registered-only.row-payment-options');
+        const customerDetailFields = document.querySelector('.registered-only.customer-detail-fields');
         
         if (type === 'walk_in') {
             nameInput.value = 'Walk-in Customer';
             rowPaymentSections.forEach(el => el.style.display = 'none');
+            if (customerDetailFields) customerDetailFields.style.display = 'none';
+            document.getElementById('customer_address').value = '';
+            document.getElementById('customer_google_map').value = '';
+            document.getElementById('customer_address_visible').value = '';
+            document.getElementById('customer_google_map_visible').value = '';
         } else {
             if (nameInput.value === 'Walk-in Customer') nameInput.value = '';
             rowPaymentSections.forEach(el => el.style.display = 'flex');
-            
-            // REMOVED: nameInput.focus(); 
-            // This was stealing your cursor and preventing clicks!
         }
 
+        updateLpgTransactionOptions();
         document.querySelectorAll('.sale-row').forEach(row => {
             const statusSelect = row.querySelector('select[name="payment_status[]"]');
             if (statusSelect) toggleRowPaymentStatus(statusSelect);
         });
+        updateCustomerAddressFields();
         calculateSaleTotal();
+    }
+
+    function syncVisibleCustomerFieldsToHidden() {
+        document.getElementById('customer_address').value = document.getElementById('customer_address_visible').value.trim();
+        document.getElementById('customer_google_map').value = document.getElementById('customer_google_map_visible').value.trim();
+    }
+
+    function updateCustomerAddressFields() {
+        const type = document.getElementById('customer_type').value;
+        const nameInput = document.getElementById('customer_name');
+        const addressHidden = document.getElementById('customer_address');
+        const mapHidden = document.getElementById('customer_google_map');
+        const addressVisible = document.getElementById('customer_address_visible');
+        const mapVisible = document.getElementById('customer_google_map_visible');
+        const customerDetailFields = document.querySelector('.registered-only.customer-detail-fields');
+
+        if (!addressHidden || !mapHidden || !addressVisible || !mapVisible || type !== 'registered') {
+            if (customerDetailFields) customerDetailFields.style.display = 'none';
+            if (addressHidden) addressHidden.value = '';
+            if (mapHidden) mapHidden.value = '';
+            return;
+        }
+
+        const customerName = nameInput.value.trim();
+        const customer = saleCustomers.find(item => item.CustomerName === customerName);
+        const isNewCustomer = customerName !== '' && !customer;
+
+        if (isNewCustomer) {
+            if (customerDetailFields) customerDetailFields.style.display = 'flex';
+            syncVisibleCustomerFieldsToHidden();
+            return;
+        }
+
+        if (customerDetailFields) customerDetailFields.style.display = 'none';
+        addressVisible.value = '';
+        mapVisible.value = '';
+
+        if (customer) {
+            addressHidden.value = customer.Address || '';
+            mapHidden.value = customer.GoogleMap || '';
+        } else {
+            addressHidden.value = '';
+            mapHidden.value = '';
+        }
     }
 
     function toggleRowPaymentStatus(select) {
@@ -321,9 +497,16 @@
         const status = select.value;
         const partialField = row.querySelector('.row-partial-only');
         const dueDateField = row.querySelector('.row-loan-partial-only');
+        const dueDateInput = row.querySelector('.sale-due-date-input');
 
         if (partialField) partialField.style.display = status === 'PARTIAL' ? 'block' : 'none';
         if (dueDateField) dueDateField.style.display = (status === 'PARTIAL' || status === 'UNPAID') ? 'block' : 'none';
+        if (dueDateInput) {
+            dueDateInput.required = status === 'UNPAID';
+            if (status !== 'PARTIAL' && status !== 'UNPAID') {
+                dueDateInput.value = '';
+            }
+        }
 
         calculateSaleTotal();
     }
@@ -370,40 +553,53 @@
         const panel = row.querySelector('.lpg-options');
         const typeInput = row.querySelector('input[name="product_type[]"]');
         const tankSelect = row.querySelector('select[name="lpg_transaction_type[]"]');
-        const condition = row.querySelector('input[name="lpg_tank_condition[]"]');
+        const condition = row.querySelector('select[name="lpg_tank_condition[]"]');
         const isLpg = productIsLpg(product);
         
         typeInput.value = isLpg ? 'LPG' : String(product?.type || '');
         
-        // FIX: Use 'flex' instead of 'block'
         panel.style.display = isLpg ? 'flex' : 'none'; 
         
         if (!isLpg) {
             tankSelect.value = 'NONE';
-            condition.value = '';
+            if (condition) condition.value = '';
+        } else {
+            tankSelect.value = 'SWAPPED';
         }
         toggleLpgCondition(tankSelect);
-    }       
+        applySaleUnitPrice(row);
+    }
 
     function toggleLpgCondition(select) {
         const row = select.closest('.sale-row');
         const wrap = row.querySelector('.lpg-condition-wrap');
-        const condition = row.querySelector('input[name="lpg_tank_condition[]"]');
+        const condition = row.querySelector('select[name="lpg_tank_condition[]"]');
+        const conditionLabel = wrap ? wrap.querySelector('.lpg-condition-label') : null;
         const swapped = select.value === 'SWAPPED';
-        wrap.style.display = swapped ? 'block' : 'none';
-        condition.required = swapped;
-        if (!swapped) condition.value = '';
+        const lent = select.value === 'LENT';
+        const needsCondition = swapped || lent;
+        if (wrap) wrap.style.display = needsCondition ? 'block' : 'none';
+        if (conditionLabel) {
+            conditionLabel.textContent = lent ? 'Lent Tank Condition' : 'Empty Tank Condition';
+        }
+        if (condition) {
+            condition.required = needsCondition;
+            if (!needsCondition) condition.value = '';
+        }
+        applySaleUnitPrice(row);
         calculateSaleTotal();
     }
 
     function applyCustomerSelection() {
         const nameInput = document.getElementById('customer_name');
-        const customer = saleCustomers.find(item => item.CustomerName === nameInput.value);
-        if (!customer) return;
+        const customerName = nameInput.value.trim();
+        if (customerName === '' || customerName === 'Walk-in Customer') {
+            return;
+        }
+
         document.getElementById('customer_type').value = 'registered';
         toggleCustomerType();
-        if (customer.Address) document.getElementById('customer_address').value = customer.Address;
-        if (customer.GoogleMap) document.getElementById('customer_google_map').value = customer.GoogleMap;
+        updateCustomerAddressFields();
     }
 
     function applyProductSelection(input) {
@@ -418,7 +614,9 @@
             row.querySelector('input[name="product_price[]"]').value = '';
             row.dataset.basePrice = '0';
             row.dataset.alternatePrice = '0';
+            row.dataset.alternateUnit = '';
             row.dataset.stock = '0';
+            row.dataset.purchasePrice = '0';
             calculateSaleTotal();
             return;
         }
@@ -426,9 +624,13 @@
         row.dataset.baseUnit = normalizeUnit(product.unit || 'pc');
         row.dataset.canConvert = String(product.can_convert || 0);
         row.dataset.equivQty = String(product.equiv_qty || 0);
+        row.dataset.alternateUnit = normalizeUnit(product.alternate_unit || '');
         row.dataset.basePrice = String(product.price || 0);
         row.dataset.alternatePrice = String(product.alternate_price || 0);
+        row.dataset.lpgRefillPrice = String(product.lpg_refill_price || product.price || 0);
+        row.dataset.lpgNewTankPrice = String(product.lpg_new_tank_price || product.lpg_refill_price || product.price || 0);
         row.dataset.stock = String(product.stock || 0);
+        row.dataset.purchasePrice = String(product.purchase_price || 0);
         syncSaleUnitControls(row, row.dataset.baseUnit);
         configureLpgRow(row, product);
         calculateSaleTotal();
@@ -443,9 +645,6 @@
         document.querySelectorAll('.sale-row').forEach(row => {
             const qty = parseFloat(row.querySelector('input[name="product_quantity[]"]').value) || 0;
             const price = parseFloat(row.querySelector('input[name="product_price[]"]').value) || 0;
-            const stock = parseFloat(row.dataset.stock || '0') || 0;
-            
-            // DELETED the stockNote variables and if-statements that turned the text red
             
             const baseTotal = qty * price;
             row.querySelector('input[name="total_price[]"]').value = baseTotal.toFixed(2);
@@ -453,6 +652,7 @@
 
             syncRowPaymentValues(row, isRegistered, baseTotal);
             amountDue += getRowAmountDue(row, isRegistered);
+            updateRowLossWarning(row);
         });
         
         document.getElementById('saleGrandTotal').textContent = grandTotal.toFixed(2);
@@ -492,16 +692,23 @@
         clone.dataset.baseUnit = 'pc';
         clone.dataset.canConvert = '0';
         clone.dataset.equivQty = '0';
+        clone.dataset.alternateUnit = '';
         clone.dataset.basePrice = '0';
         clone.dataset.alternatePrice = '0';
         clone.dataset.selectedUnit = 'pc';
+        clone.dataset.purchasePrice = '0';
         syncSaleUnitControls(clone, 'pc');
-        clone.querySelectorAll('select[name="lpg_transaction_type[]"]').forEach(select => select.value = 'NONE');
+        clone.querySelectorAll('select[name="lpg_transaction_type[]"]').forEach(select => select.value = 'SWAPPED');
         clone.querySelectorAll('select[name="payment_status[]"]').forEach(select => select.value = 'PAID');
         clone.querySelectorAll('.row-partial-only, .row-loan-partial-only').forEach(el => el.style.display = 'none');
         
         configureLpgRow(clone, null);
+        updateLpgTransactionOptions();
         clone.dataset.stock = '0';
+        const cloneWarningRow = clone.querySelector('.sale-loss-warning-row');
+        const cloneWarningBox = clone.querySelector('.sale-loss-warning');
+        if (cloneWarningRow) cloneWarningRow.style.display = 'none';
+        if (cloneWarningBox) cloneWarningBox.textContent = '';
         
         document.getElementById('dynamicSaleFields').appendChild(clone);
         const customerType = document.getElementById('customer_type').value;
@@ -516,6 +723,7 @@
     });
 
     document.getElementById('saleForm').addEventListener('submit', function(event) {
+        syncVisibleCustomerFieldsToHidden();
         calculateSaleTotal();
         const requestedByProduct = {};
         let hasProduct = false;
@@ -526,10 +734,11 @@
             const saleUnit = row.querySelector('.sale-unit-select')?.value || row.dataset.baseUnit || 'pc';
             const baseUnit = row.dataset.baseUnit || 'pc';
             const equivQty = row.dataset.equivQty || '0';
+            const alternateSaleUnit = row.dataset.alternateUnit || '';
             if (productName !== '' && productId !== '' && qty > 0) {
                 hasProduct = true;
                 const key = productId + '|' + productName;
-                const baseQty = saleQtyToBase(qty, saleUnit, baseUnit, equivQty);
+                const baseQty = saleQtyToBase(qty, saleUnit, baseUnit, equivQty, alternateSaleUnit);
                 requestedByProduct[key] = (requestedByProduct[key] || 0) + baseQty;
             }
         });
@@ -538,8 +747,52 @@
             alert('Add at least one valid product before continuing.');
             return;
         }
+
+        const isRegistered = document.getElementById('customer_type').value === 'registered';
+        if (isRegistered) {
+            let missingLoanDueDate = false;
+            document.querySelectorAll('.sale-row').forEach(function (row) {
+                const status = row.querySelector('select[name="payment_status[]"]')?.value || 'PAID';
+                if (status === 'UNPAID') {
+                    const dueDate = row.querySelector('.sale-due-date-input')?.value.trim() || '';
+                    if (dueDate === '') {
+                        missingLoanDueDate = true;
+                    }
+                }
+            });
+            if (missingLoanDueDate) {
+                event.preventDefault();
+                alert('Due date is required for loan / unpaid items.');
+                return;
+            }
+        }
+
+        const lossWarnings = [];
+        document.querySelectorAll('.sale-row').forEach(row => {
+            if (updateRowLossWarning(row)) {
+                const productName = row.querySelector('input[name="product_name[]"]')?.value.trim() || 'Product';
+                lossWarnings.push(productName);
+            }
+        });
+
+        if (lossWarnings.length > 0) {
+            const uniqueNames = [...new Set(lossWarnings)];
+            const proceed = window.confirm(
+                'One or more products may be sold at a loss:\n\n- ' +
+                uniqueNames.join('\n- ') +
+                '\n\nContinue anyway?'
+            );
+            if (!proceed) {
+                event.preventDefault();
+            }
+        }
     });
 
     calculateSaleTotal();
+    updateLpgTransactionOptions();
     document.querySelectorAll('.sale-row').forEach(row => syncSaleUnitControls(row));
+    document.getElementById('customer_name').addEventListener('input', updateCustomerAddressFields);
+    document.getElementById('customer_name').addEventListener('change', applyCustomerSelection);
+    document.getElementById('customer_address_visible').addEventListener('input', syncVisibleCustomerFieldsToHidden);
+    document.getElementById('customer_google_map_visible').addEventListener('input', syncVisibleCustomerFieldsToHidden);
 </script>
