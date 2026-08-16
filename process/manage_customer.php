@@ -4,7 +4,8 @@
 	$customerAddress = trim((string) ($_POST['customer_address'] ?? ''));
 	$customerGoogleMap = trim((string) ($_POST['customer_google_map'] ?? ''));
 	$searchCustomer = trim((string) ($_POST['search_customer'] ?? ''));
-	$redirectSuffix = $searchCustomer !== '' ? '&searchCustomer=' . urlencode($searchCustomer) : '';
+	$sortCustomer = junkshop_normalize_customers_sort($_POST['sort_customer'] ?? 'due_date');
+	$redirectSuffix = junkshop_customers_redirect_suffix($searchCustomer, $sortCustomer);
 
 	if ($originalCustomerName !== '') {
 		if ($originalCustomerName === '' || junkshop_is_walk_in_customer($originalCustomerName)) {

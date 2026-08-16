@@ -1,4 +1,7 @@
 <?php
+	$searchInventory = isset($_GET['searchInventory']) ? trim((string) $_GET['searchInventory']) : '';
+	$sortInventory = junkshop_normalize_inventory_sort($_GET['sortInventory'] ?? 'available_units');
+
 	$inventoryRows = $connectDB->query("
 		SELECT
 			p.Product_ID,
@@ -14,7 +17,7 @@
 		LEFT JOIN inventory_batches b ON b.Product_ID = p.Product_ID
 		WHERE p.IsActive = 1
 		GROUP BY p.Product_ID, p.ProductName, p.ProductType, p.ProductBaseUnit, p.CanConvertToKg, p.KgEquivalentQty, p.AlternateSaleUnit, p.StockLimit
-		ORDER BY ProductType ASC, ProductName ASC
+		ORDER BY p.ProductName ASC
 	");
 
 	$categoryStockTotals = [];
@@ -83,6 +86,73 @@
 			$batchHistoryByProduct[$productId][] = $batch;
 		}
 	}
+
+	$inventoryItems = [];
+	if ($inventoryRows && $inventoryRows->num_rows > 0) {
+		while ($row = $inventoryRows->fetch_assoc()) {
+			$productId = (int) ($row['Product_ID'] ?? 0);
+			$totalStock = round((float) ($row['TotalStock'] ?? 0), 2);
+			$stockLimit = round((float) ($row['StockLimit'] ?? 0), 2);
+			$baseUnit = junkshop_normalize_base_unit($row['ProductBaseUnit'] ?? 'pc');
+			$canConvert = (int) ($row['CanConvertToKg'] ?? 0);
+			$equivQty = (float) ($row['KgEquivalentQty'] ?? 0);
+			$alternateSaleUnit = trim((string) ($row['AlternateSaleUnit'] ?? ''));
+			$alternateStock = junkshop_base_qty_to_alternate($totalStock, $baseUnit, $equivQty, $alternateSaleUnit);
+			$alternateUnit = junkshop_get_alternate_sale_unit($baseUnit, $alternateSaleUnit);
+			$stockDisplay = number_format($totalStock, 2) . ' ' . junkshop_unit_label($baseUnit);
+			if ($alternateStock !== null && $alternateUnit !== null && $canConvert === 1) {
+				$stockDisplay .= ' / ' . number_format($alternateStock, 2) . ' ' . junkshop_unit_label($alternateUnit);
+			}
+
+			$batches = $batchHistoryByProduct[$productId] ?? [];
+			$currentConsumingPrice = 0.0;
+			$stockCostValue = 0.0;
+			$activeBatchCount = count($batches);
+			$currentConsumingBatchId = 0;
+			if ($activeBatchCount > 0) {
+				$currentConsumingBatchId = (int) ($batches[0]['ID'] ?? 0);
+				$currentConsumingPrice = round((float) ($batches[0]['UnitCost'] ?? 0), 2);
+			}
+			foreach ($batches as $batch) {
+				$remainingQty = round((float) ($batch['QuantityRemaining'] ?? 0), 2);
+				$unitCost = round((float) ($batch['UnitCost'] ?? 0), 2);
+				$stockCostValue += round($remainingQty * $unitCost, 2);
+			}
+			$stockCostValue = round($stockCostValue, 2);
+			$isLow = $stockLimit > 0 && $totalStock <= $stockLimit;
+			$category = trim((string) ($row['ProductType'] ?? ''));
+			if ($category === '') {
+				$category = 'Products';
+			}
+			$statusLabel = junkshop_inventory_status_label($totalStock, $stockLimit, $activeBatchCount);
+
+			$inventoryItems[] = [
+				'product_id' => $productId,
+				'product_name' => trim((string) ($row['ProductName'] ?? '')),
+				'category' => $category,
+				'base_unit' => $baseUnit,
+				'total_stock' => $totalStock,
+				'available_units' => $totalStock,
+				'stock_display' => $stockDisplay,
+				'stock_limit' => $stockLimit,
+				'is_low' => $isLow,
+				'status_label' => $statusLabel,
+				'active_batch_count' => $activeBatchCount,
+				'current_consuming_price' => $currentConsumingPrice,
+				'stock_cost_value' => $stockCostValue,
+				'current_consuming_batch_id' => $currentConsumingBatchId,
+				'batches' => $batches,
+			];
+		}
+	}
+
+	$inventoryAllItems = $inventoryItems;
+	if ($searchInventory !== '') {
+		$inventoryItems = array_values(array_filter($inventoryItems, function ($item) use ($searchInventory) {
+			return junkshop_inventory_matches_search($item, $searchInventory);
+		}));
+	}
+	$inventoryItems = junkshop_sort_inventory_rows($inventoryItems, $sortInventory);
 ?>
 
 <style>
@@ -144,6 +214,18 @@
 		</div>
 	</div>
 
+	<form method="GET" class="list-toolbar margin-top">
+		<input type="hidden" name="mainmenu" value="inventory" />
+		<input type="text" class="searchbox" name="searchInventory" placeholder="Search product / category / status" value="<?php echo htmlspecialchars($searchInventory); ?>" />
+		<label class="visually-hidden" for="sortInventory">Sort inventory by</label>
+		<select class="form-select customers-sort-select" id="sortInventory" name="sortInventory" onchange="this.form.submit()">
+			<option value="available_units" <?php echo $sortInventory === 'available_units' ? 'selected' : ''; ?>>Available Units</option>
+			<option value="name" <?php echo $sortInventory === 'name' ? 'selected' : ''; ?>>Product Name</option>
+			<option value="category" <?php echo $sortInventory === 'category' ? 'selected' : ''; ?>>Category</option>
+		</select>
+		<button type="submit" class="btn btn-primary">Search</button>
+	</form>
+
 	<div class="table-card margin-top">
 		<div class="table-responsive">
 			<table class="table table-hover">
@@ -153,7 +235,6 @@
 						<th>Product</th>
 						<th>Category</th>
 						<th>Unit</th>
-						<th class="text-end">Total Stock</th>
 						<th class="text-end">Current Price</th>
 						<th class="text-end">Total Cost</th>
 						<th class="text-end">Available Units</th>
@@ -162,39 +243,18 @@
 					</tr>
 				</thead>
 				<tbody>
-					<?php if ($inventoryRows && $inventoryRows->num_rows > 0): ?>
-						<?php while ($row = $inventoryRows->fetch_assoc()): ?>
+					<?php if (!empty($inventoryItems)): ?>
+						<?php foreach ($inventoryItems as $item): ?>
 							<?php
-								$productId = (int) ($row['Product_ID'] ?? 0);
-								$totalStock = (float) $row['TotalStock'];
-								$stockLimit = (float) $row['StockLimit'];
-								$isLow = $stockLimit > 0 && $totalStock <= $stockLimit;
-								$baseUnit = junkshop_normalize_base_unit($row['ProductBaseUnit'] ?? 'pc');
-								$canConvert = (int) ($row['CanConvertToKg'] ?? 0);
-								$equivQty = (float) ($row['KgEquivalentQty'] ?? 0);
-								$alternateSaleUnit = trim((string) ($row['AlternateSaleUnit'] ?? ''));
-								$alternateStock = junkshop_base_qty_to_alternate($totalStock, $baseUnit, $equivQty, $alternateSaleUnit);
-								$alternateUnit = junkshop_get_alternate_sale_unit($baseUnit, $alternateSaleUnit);
-								$stockDisplay = number_format($totalStock, 2) . ' ' . junkshop_unit_label($baseUnit);
-								if ($alternateStock !== null && $alternateUnit !== null && $canConvert === 1) {
-									$stockDisplay .= ' / ' . number_format($alternateStock, 2) . ' ' . junkshop_unit_label($alternateUnit);
-								}
-
-								$batches = $batchHistoryByProduct[$productId] ?? [];
-								$currentConsumingPrice = 0.0;
-								$stockCostValue = 0.0;
-								$activeBatchCount = count($batches);
-								$currentConsumingBatchId = 0;
-								if ($activeBatchCount > 0) {
-									$currentConsumingBatchId = (int) ($batches[0]['ID'] ?? 0);
-									$currentConsumingPrice = round((float) ($batches[0]['UnitCost'] ?? 0), 2);
-								}
-								foreach ($batches as $batch) {
-									$remainingQty = round((float) ($batch['QuantityRemaining'] ?? 0), 2);
-									$unitCost = round((float) ($batch['UnitCost'] ?? 0), 2);
-									$stockCostValue += round($remainingQty * $unitCost, 2);
-								}
-								$stockCostValue = round($stockCostValue, 2);
+								$productId = (int) ($item['product_id'] ?? 0);
+								$totalStock = (float) ($item['total_stock'] ?? 0);
+								$batches = $item['batches'] ?? [];
+								$currentConsumingBatchId = (int) ($item['current_consuming_batch_id'] ?? 0);
+								$currentConsumingPrice = (float) ($item['current_consuming_price'] ?? 0);
+								$stockCostValue = (float) ($item['stock_cost_value'] ?? 0);
+								$activeBatchCount = (int) ($item['active_batch_count'] ?? 0);
+								$isLow = !empty($item['is_low']);
+								$statusLabel = (string) ($item['status_label'] ?? '');
 							?>
 							<tr class="<?php echo $isLow ? 'table-warning' : ''; ?>">
 								<td class="text-center">
@@ -213,10 +273,9 @@
 										<span class="text-muted">—</span>
 									<?php endif; ?>
 								</td>
-								<td><?php echo htmlspecialchars($row['ProductName']); ?></td>
-								<td><?php echo htmlspecialchars($row['ProductType'] !== '' ? $row['ProductType'] : 'Products'); ?></td>
-								<td><?php echo htmlspecialchars(junkshop_unit_label($baseUnit)); ?></td>
-								<td class="text-end fw-semibold"><?php echo number_format($totalStock, 2); ?> <?php echo htmlspecialchars(junkshop_unit_label($baseUnit)); ?></td>
+								<td><?php echo htmlspecialchars($item['product_name']); ?></td>
+								<td><?php echo htmlspecialchars($item['category']); ?></td>
+								<td><?php echo htmlspecialchars(junkshop_unit_label($item['base_unit'])); ?></td>
 								<td class="text-end">
 									<?php if ($totalStock > 0 && $currentConsumingPrice > 0): ?>
 										<span class="fw-semibold">&#8369;<?php echo number_format($currentConsumingPrice, 2); ?></span>
@@ -231,23 +290,23 @@
 										<span class="text-muted">—</span>
 									<?php endif; ?>
 								</td>
-								<td class="text-end"><?php echo htmlspecialchars($stockDisplay); ?></td>
-								<td class="text-end"><?php echo number_format($stockLimit, 2); ?></td>
+								<td class="text-end"><?php echo htmlspecialchars($item['stock_display']); ?></td>
+								<td class="text-end"><?php echo number_format((float) ($item['stock_limit'] ?? 0), 2); ?></td>
 								<td>
 									<?php if ($isLow): ?>
-										<span class="badge text-bg-warning">Stock limit reached</span>
+										<span class="badge text-bg-warning"><?php echo htmlspecialchars($statusLabel); ?></span>
 									<?php elseif ($totalStock <= 0): ?>
-										<span class="badge text-bg-secondary">Out of stock</span>
+										<span class="badge text-bg-secondary"><?php echo htmlspecialchars($statusLabel); ?></span>
 									<?php elseif ($activeBatchCount > 1): ?>
-										<span class="badge text-bg-info"><?php echo $activeBatchCount; ?> FIFO batches</span>
+										<span class="badge text-bg-info"><?php echo htmlspecialchars($statusLabel); ?></span>
 									<?php else: ?>
-										<span class="badge text-bg-success">In stock</span>
+										<span class="badge text-bg-success"><?php echo htmlspecialchars($statusLabel); ?></span>
 									<?php endif; ?>
 								</td>
 							</tr>
 							<?php if (count($batches) > 0): ?>
 								<tr class="inventory-batch-history-row collapse" id="inventory-history-<?php echo $productId; ?>">
-									<td colspan="10">
+									<td colspan="9">
 										<div class="table-responsive">
 											<table class="table table-sm inventory-batch-table mb-0">
 												<thead>
@@ -294,9 +353,9 @@
 									</td>
 								</tr>
 							<?php endif; ?>
-						<?php endwhile; ?>
+						<?php endforeach; ?>
 					<?php else: ?>
-						<tr><td colspan="10" class="empty-state">No inventory records yet.</td></tr>
+						<tr><td colspan="9" class="empty-state"><?php echo !empty($inventoryAllItems) && $searchInventory !== '' ? 'No inventory records matched your search.' : 'No inventory records yet.'; ?></td></tr>
 					<?php endif; ?>
 				</tbody>
 			</table>

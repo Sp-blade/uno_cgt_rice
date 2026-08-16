@@ -6,7 +6,8 @@
 	$paymentDate = junkshop_normalize_datetime($_POST['payment_date'] ?? '');
 	$paymentNotes = trim((string) ($_POST['payment_notes'] ?? ''));
 	$searchCustomer = trim((string) ($_POST['search_customer'] ?? ''));
-	$redirectSuffix = $searchCustomer !== '' ? '&searchCustomer=' . urlencode($searchCustomer) : '';
+	$sortCustomer = junkshop_normalize_customers_sort($_POST['sort_customer'] ?? 'due_date');
+	$redirectSuffix = junkshop_customers_redirect_suffix($searchCustomer, $sortCustomer);
 
 	if ($customerName === '' || junkshop_is_walk_in_customer($customerName)) {
 		header("Location: " . $server . "?mainmenu=customers&payment_status=invalid_customer" . $redirectSuffix);

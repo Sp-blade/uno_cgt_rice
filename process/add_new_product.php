@@ -175,7 +175,7 @@
 						$connectDB->query("INSERT INTO income (ProductName, PurchaseDate_From, PurchaseDate_To, SellingPrice, Less) VALUES ('$productName', CURDATE(), CURDATE(), '$sellingPrice', 5.00) ON DUPLICATE KEY UPDATE SellingPrice = '$sellingPrice'");
 					}
 				}
-				if ($isSubProduct === 0 && $isLpgProductType && $newProductId > 0) {
+				if ($isSubProduct === 0 && $newProductId > 0 && junkshop_product_is_lpg($connectDB, $newProductId, trim((string) ($_GET['product_name'] ?? '')))) {
 					junkshop_ensure_lpg_tank_product($connectDB, $newProductId, trim((string) ($_GET['product_name'] ?? '')), $productBaseUnit, 1);
 				}
 				echo "<div class='alert alert-success' role='alert'>" . htmlspecialchars($productName) . " has been successfully added</div>";

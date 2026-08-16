@@ -3,6 +3,8 @@
 	$safeWalkInCustomerName = mysqli_real_escape_string($connectDB, $walkInCustomerName);
 	$searchCustomer = isset($_GET['searchCustomer']) ? trim((string) $_GET['searchCustomer']) : '';
 	$safeSearchCustomer = mysqli_real_escape_string($connectDB, $searchCustomer);
+	$sortCustomer = junkshop_normalize_customers_sort($_GET['sortCustomer'] ?? 'due_date');
+	$customerOrderBy = junkshop_customers_order_by_sql($sortCustomer);
 	$whereParts = ["c.CustomerName <> '$safeWalkInCustomerName'"];
 	if ($safeSearchCustomer !== '') {
 		$whereParts[] = "(c.CustomerName LIKE '%$safeSearchCustomer%' OR c.Address LIKE '%$safeSearchCustomer%')";
@@ -21,7 +23,7 @@
 		LEFT JOIN customer_accounts a ON a.CustomerName = c.CustomerName
 		$whereCustomer
 		GROUP BY c.CustomerName, c.Address, c.GoogleMap
-		ORDER BY c.CustomerName ASC
+		ORDER BY $customerOrderBy
 	");
 
 	$customerAccounts = [];
@@ -194,6 +196,12 @@
 	<form method="GET" class="list-toolbar margin-top">
 		<input type="hidden" name="mainmenu" value="customers" />
 		<input type="text" class="searchbox" name="searchCustomer" placeholder="Search customer / address" value="<?php echo htmlspecialchars($searchCustomer); ?>" />
+		<label class="visually-hidden" for="sortCustomer">Sort customers by</label>
+		<select class="form-select customers-sort-select" id="sortCustomer" name="sortCustomer" onchange="this.form.submit()">
+			<option value="due_date" <?php echo $sortCustomer === 'due_date' ? 'selected' : ''; ?>>Latest Due Date</option>
+			<option value="name" <?php echo $sortCustomer === 'name' ? 'selected' : ''; ?>>Full Name</option>
+			<option value="balance" <?php echo $sortCustomer === 'balance' ? 'selected' : ''; ?>>Balance</option>
+		</select>
 		<button type="submit" class="btn btn-primary">Search</button>
 	</form>
 
@@ -311,6 +319,7 @@
 				</div>
 				<div class="modal-body">
 					<input type="hidden" name="search_customer" value="<?php echo htmlspecialchars($searchCustomer, ENT_QUOTES); ?>" />
+					<input type="hidden" name="sort_customer" value="<?php echo htmlspecialchars($sortCustomer, ENT_QUOTES); ?>" />
 
 					<div class="row g-3">
 						<div class="col-md-12">
@@ -347,6 +356,7 @@
 				<div class="modal-body">
 					<input type="hidden" name="original_customer_name" id="edit_original_customer_name" value="" />
 					<input type="hidden" name="search_customer" value="<?php echo htmlspecialchars($searchCustomer, ENT_QUOTES); ?>" />
+					<input type="hidden" name="sort_customer" value="<?php echo htmlspecialchars($sortCustomer, ENT_QUOTES); ?>" />
 
 					<div class="row g-3">
 						<div class="col-md-12">
@@ -383,6 +393,7 @@
 				<div class="modal-body">
 					<input type="hidden" name="customer_name" id="pay_customer_name" value="" />
 					<input type="hidden" name="search_customer" value="<?php echo htmlspecialchars($searchCustomer, ENT_QUOTES); ?>" />
+					<input type="hidden" name="sort_customer" value="<?php echo htmlspecialchars($sortCustomer, ENT_QUOTES); ?>" />
 
 					<div class="row g-3 mb-3">
 						<div class="col-md-6">
@@ -522,6 +533,7 @@
 					<input type="hidden" name="payment_id" id="edit_payment_id" value="" />
 					<input type="hidden" name="customer_name" id="edit_payment_customer_name" value="" />
 					<input type="hidden" name="search_customer" value="<?php echo htmlspecialchars($searchCustomer, ENT_QUOTES); ?>" />
+					<input type="hidden" name="sort_customer" value="<?php echo htmlspecialchars($sortCustomer, ENT_QUOTES); ?>" />
 
 					<div class="row g-3 mb-3">
 						<div class="col-md-6">
@@ -572,6 +584,7 @@
 					<input type="hidden" name="customer_name" id="edit_due_date_customer_name" value="" />
 					<input type="hidden" name="delivery_no" id="edit_due_date_delivery_no" value="" />
 					<input type="hidden" name="search_customer" value="<?php echo htmlspecialchars($searchCustomer, ENT_QUOTES); ?>" />
+					<input type="hidden" name="sort_customer" value="<?php echo htmlspecialchars($sortCustomer, ENT_QUOTES); ?>" />
 
 					<div class="mb-3">
 						<label class="form-label">Customer</label>
@@ -768,6 +781,7 @@
 		const tbody = document.getElementById('history_payments_body');
 		const payments = customerPaymentsData[customerName] || [];
 		const searchCustomer = <?php echo json_encode($searchCustomer, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?>;
+		const customersSort = <?php echo json_encode($sortCustomer, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?>;
 
 		if (!tbody) {
 			return;
@@ -781,7 +795,8 @@
 		tbody.innerHTML = payments.map(function (payment) {
 			const deleteHref = '?mainmenu=delete_customer_payment&payment_id=' + encodeURIComponent(payment.id) +
 				'&customer=' + encodeURIComponent(customerName) +
-				(searchCustomer ? '&searchCustomer=' + encodeURIComponent(searchCustomer) : '');
+				(searchCustomer ? '&searchCustomer=' + encodeURIComponent(searchCustomer) : '') +
+				(customersSort && customersSort !== 'due_date' ? '&sortCustomer=' + encodeURIComponent(customersSort) : '');
 			const recordLabel = 'Payment ' + formatCurrency(payment.amount) + ' on ' + formatDateTime(payment.payment_date);
 
 			return `
@@ -1005,6 +1020,7 @@
 						'<input type="hidden" name="loan_id" value="' + Number(loan.id || 0) + '" />' +
 						'<input type="hidden" name="customer_name" value="' + escapeHtml(customerName) + '" />' +
 						'<input type="hidden" name="search_customer" value="<?php echo htmlspecialchars($searchCustomer, ENT_QUOTES); ?>" />' +
+						'<input type="hidden" name="sort_customer" value="<?php echo htmlspecialchars($sortCustomer, ENT_QUOTES); ?>" />' +
 						'<select class="form-select form-select-sm" name="return_condition" required style="min-width: 90px;">' +
 							'<option value="">Condition</option>' +
 							'<option value="NEW">New</option>' +

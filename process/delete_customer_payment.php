@@ -2,7 +2,8 @@
 	$paymentId = (int) ($_GET['payment_id'] ?? $_POST['payment_id'] ?? 0);
 	$customerName = trim((string) ($_GET['customer'] ?? $_POST['customer'] ?? ''));
 	$searchCustomer = trim((string) ($_GET['searchCustomer'] ?? $_POST['search_customer'] ?? ''));
-	$redirectSuffix = $searchCustomer !== '' ? '&searchCustomer=' . urlencode($searchCustomer) : '';
+	$sortCustomer = junkshop_normalize_customers_sort($_GET['sortCustomer'] ?? $_POST['sort_customer'] ?? 'due_date');
+	$redirectSuffix = junkshop_customers_redirect_suffix($searchCustomer, $sortCustomer);
 
 	if ($paymentId <= 0) {
 		header("Location: " . $server . "?mainmenu=customers&payment_status=invalid_payment" . $redirectSuffix);

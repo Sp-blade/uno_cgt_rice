@@ -231,6 +231,11 @@ body {
 	padding: 0.95rem 1.15rem;
 }
 
+.customers-sort-select {
+	min-width: 190px;
+	max-width: 220px;
+}
+
 .row {
 	--bs-gutter-y: 1rem;
 }

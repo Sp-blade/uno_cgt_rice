@@ -198,6 +198,122 @@
 		}
 	}
 
+	if (!function_exists('junkshop_normalize_customers_sort')) {
+		function junkshop_normalize_customers_sort($sort) {
+			$sort = trim((string) $sort);
+			return in_array($sort, ['due_date', 'name', 'balance'], true) ? $sort : 'due_date';
+		}
+	}
+
+	if (!function_exists('junkshop_customers_redirect_suffix')) {
+		function junkshop_customers_redirect_suffix($searchCustomer = '', $sortCustomer = 'due_date') {
+			$parts = [];
+			$searchCustomer = trim((string) $searchCustomer);
+			$sortCustomer = junkshop_normalize_customers_sort($sortCustomer);
+			if ($searchCustomer !== '') {
+				$parts[] = 'searchCustomer=' . urlencode($searchCustomer);
+			}
+			if ($sortCustomer !== 'due_date') {
+				$parts[] = 'sortCustomer=' . urlencode($sortCustomer);
+			}
+			return $parts ? '&' . implode('&', $parts) : '';
+		}
+	}
+
+	if (!function_exists('junkshop_customers_order_by_sql')) {
+		function junkshop_customers_order_by_sql($sortCustomer = 'due_date') {
+			switch (junkshop_normalize_customers_sort($sortCustomer)) {
+				case 'name':
+					return 'c.CustomerName ASC';
+				case 'balance':
+					return 'Balance DESC, c.CustomerName ASC';
+				case 'due_date':
+				default:
+					return "CASE WHEN MAX(a.DueDate) IS NULL OR MAX(a.DueDate) = '0000-00-00' THEN 1 ELSE 0 END ASC, MAX(a.DueDate) ASC, c.CustomerName ASC";
+			}
+		}
+	}
+
+	if (!function_exists('junkshop_normalize_inventory_sort')) {
+		function junkshop_normalize_inventory_sort($sort) {
+			$sort = trim((string) $sort);
+			return in_array($sort, ['available_units', 'name', 'category'], true) ? $sort : 'available_units';
+		}
+	}
+
+	if (!function_exists('junkshop_inventory_status_label')) {
+		function junkshop_inventory_status_label($totalStock, $stockLimit, $activeBatchCount) {
+			$totalStock = round((float) $totalStock, 2);
+			$stockLimit = round((float) $stockLimit, 2);
+			$activeBatchCount = (int) $activeBatchCount;
+			if ($stockLimit > 0 && $totalStock <= $stockLimit) {
+				return 'Stock limit reached';
+			}
+			if ($totalStock <= 0) {
+				return 'Out of stock';
+			}
+			if ($activeBatchCount > 1) {
+				return $activeBatchCount . ' FIFO batches';
+			}
+			return 'In stock';
+		}
+	}
+
+	if (!function_exists('junkshop_lpg_inventory_status_label')) {
+		function junkshop_lpg_inventory_status_label($filledStock) {
+			return round((float) $filledStock, 2) <= 0 ? 'Out of stock' : 'In stock';
+		}
+	}
+
+	if (!function_exists('junkshop_inventory_matches_search')) {
+		function junkshop_inventory_matches_search(array $row, $search) {
+			$search = trim((string) $search);
+			if ($search === '') {
+				return true;
+			}
+			$needle = strtolower($search);
+			$fields = [
+				(string) ($row['product_name'] ?? ''),
+				(string) ($row['category'] ?? ''),
+				(string) ($row['status_label'] ?? ''),
+			];
+			foreach ($fields as $field) {
+				if ($field !== '' && strpos(strtolower($field), $needle) !== false) {
+					return true;
+				}
+			}
+			return false;
+		}
+	}
+
+	if (!function_exists('junkshop_sort_inventory_rows')) {
+		function junkshop_sort_inventory_rows(array $rows, $sort) {
+			$sort = junkshop_normalize_inventory_sort($sort);
+			usort($rows, function ($left, $right) use ($sort) {
+				switch ($sort) {
+					case 'name':
+						$compare = strcasecmp((string) ($left['product_name'] ?? ''), (string) ($right['product_name'] ?? ''));
+						break;
+					case 'category':
+						$compare = strcasecmp((string) ($left['category'] ?? ''), (string) ($right['category'] ?? ''));
+						if ($compare === 0) {
+							$compare = strcasecmp((string) ($left['product_name'] ?? ''), (string) ($right['product_name'] ?? ''));
+						}
+						break;
+					case 'available_units':
+					default:
+						$compare = ((float) ($left['available_units'] ?? 0) <=> (float) ($right['available_units'] ?? 0));
+						if ($compare === 0) {
+							$compare = strcasecmp((string) ($left['product_name'] ?? ''), (string) ($right['product_name'] ?? ''));
+						}
+						break;
+				}
+				return $compare;
+			});
+			return $rows;
+		}
+	}
+
 	if (!function_exists('junkshop_get_last_purchase_price')) {
 		function junkshop_get_last_purchase_price($connectDB, $productId, $productName = '') {
 			$productId = (int) $productId;
@@ -2058,7 +2174,13 @@
 	$lpgParentProductsResult = $connectDB->query("
 		SELECT Product_ID, ProductName, ProductBaseUnit, IsActive
 		FROM products
-		WHERE UPPER(ProductType) = 'LPG' AND COALESCE(IsSubProduct, 0) = 0
+		WHERE COALESCE(IsSubProduct, 0) = 0
+			AND UPPER(COALESCE(ProductType, '')) <> 'LPG TANK'
+			AND (
+				UPPER(COALESCE(ProductType, '')) = 'LPG'
+				OR LOWER(ProductName) LIKE '%lpg%'
+				OR LOWER(ProductName) LIKE '%gasul%'
+			)
 		ORDER BY Product_ID ASC
 	");
 	if ($lpgParentProductsResult && $lpgParentProductsResult->num_rows > 0) {

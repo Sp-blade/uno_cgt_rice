@@ -84,7 +84,7 @@
 			}
 				}
 				junkshop_sync_product_current_name($connectDB, $product_id, $productName);
-				if ($isLpgProductType) {
+				if ($isSubProduct === 0 && junkshop_product_is_lpg($connectDB, $product_id, $productName)) {
 					$parentActive = 1;
 					$activeResult = $connectDB->query("SELECT IsActive FROM products WHERE Product_ID = '$safeProductId' LIMIT 1");
 					if ($activeResult && ($activeRow = $activeResult->fetch_assoc())) {
