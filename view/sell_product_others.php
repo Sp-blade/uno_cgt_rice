@@ -33,7 +33,25 @@
                 WHERE pu.Product_ID = p.Product_ID
                 ORDER BY pu.PurchaseDate DESC, pu.ID DESC
                 LIMIT 1
-            ), 0) AS purchase_price
+            ), 0) AS purchase_price,
+            COALESCE((
+                SELECT ib.UnitCost
+                FROM products tank
+                INNER JOIN inventory_batches ib ON ib.Product_ID = tank.Product_ID
+                WHERE tank.ParentProduct_ID = p.Product_ID
+                    AND COALESCE(tank.IsSubProduct, 0) = 1
+                    AND ib.QuantityRemaining > 0
+                ORDER BY ib.BatchDate ASC, ib.ID ASC
+                LIMIT 1
+            ), (
+                SELECT pu.ProductPrice
+                FROM products tank
+                INNER JOIN purchases pu ON pu.Product_ID = tank.Product_ID
+                WHERE tank.ParentProduct_ID = p.Product_ID
+                    AND COALESCE(tank.IsSubProduct, 0) = 1
+                ORDER BY pu.PurchaseDate DESC, pu.ID DESC
+                LIMIT 1
+            ), 0) AS lpg_tank_purchase_price
         FROM products p
         LEFT JOIN inventory_batches b ON b.Product_ID = p.Product_ID
         WHERE p.IsActive = 1 AND COALESCE(p.IsSubProduct, 0) = 0 $productWhere
@@ -284,6 +302,18 @@
         return '₱' + (Number(value) || 0).toFixed(2);
     }
 
+    function getRowPurchasePricePerBase(row) {
+        const lpgPanel = row.querySelector('.lpg-options');
+        const isLpgVisible = lpgPanel && lpgPanel.style.display !== 'none';
+        const tankSelect = row.querySelector('select[name="lpg_transaction_type[]"]');
+        const refillPurchase = parseFloat(row.dataset.purchasePrice || '0') || 0;
+        if (isLpgVisible && tankSelect && tankSelect.value === 'SOLD') {
+            const tankPurchase = parseFloat(row.dataset.lpgTankPurchasePrice || '0') || 0;
+            return refillPurchase + tankPurchase;
+        }
+        return refillPurchase;
+    }
+
     function updateRowLossWarning(row) {
         const warningRow = row.querySelector('.sale-loss-warning-row');
         const warningBox = row.querySelector('.sale-loss-warning');
@@ -291,7 +321,7 @@
 
         const productName = row.querySelector('input[name="product_name[]"]')?.value.trim() || '';
         const sellPrice = parseFloat(row.querySelector('input[name="product_price[]"]')?.value) || 0;
-        const purchasePricePerBase = parseFloat(row.dataset.purchasePrice || '0') || 0;
+        const purchasePricePerBase = getRowPurchasePricePerBase(row);
         const baseUnit = normalizeUnit(row.dataset.baseUnit || 'pc');
         const saleUnit = normalizeUnit(row.querySelector('.sale-unit-select')?.value || baseUnit);
         const equivQty = row.dataset.equivQty || '0';
@@ -375,9 +405,10 @@
         const tankSelect = row.querySelector('select[name="lpg_transaction_type[]"]');
         if (isLpgVisible && tankSelect) {
             const refillPrice = Number(row.dataset.lpgRefillPrice || row.dataset.basePrice || 0);
-            const newTankPrice = Number(row.dataset.lpgNewTankPrice || refillPrice || 0);
+            const newTankPrice = Number(row.dataset.lpgNewTankPrice || 0);
             if (tankSelect.value === 'SOLD') {
-                return newTankPrice > 0 ? newTankPrice : refillPrice;
+                const combinedPrice = (refillPrice > 0 ? refillPrice : 0) + (newTankPrice > 0 ? newTankPrice : 0);
+                return combinedPrice > 0 ? combinedPrice : Number(row.dataset.basePrice || 0);
             }
             return refillPrice > 0 ? refillPrice : Number(row.dataset.basePrice || 0);
         }
@@ -617,6 +648,7 @@
             row.dataset.alternateUnit = '';
             row.dataset.stock = '0';
             row.dataset.purchasePrice = '0';
+            row.dataset.lpgTankPurchasePrice = '0';
             calculateSaleTotal();
             return;
         }
@@ -628,7 +660,8 @@
         row.dataset.basePrice = String(product.price || 0);
         row.dataset.alternatePrice = String(product.alternate_price || 0);
         row.dataset.lpgRefillPrice = String(product.lpg_refill_price || product.price || 0);
-        row.dataset.lpgNewTankPrice = String(product.lpg_new_tank_price || product.lpg_refill_price || product.price || 0);
+        row.dataset.lpgNewTankPrice = String(product.lpg_new_tank_price || 0);
+        row.dataset.lpgTankPurchasePrice = String(product.lpg_tank_purchase_price || 0);
         row.dataset.stock = String(product.stock || 0);
         row.dataset.purchasePrice = String(product.purchase_price || 0);
         syncSaleUnitControls(row, row.dataset.baseUnit);
@@ -697,6 +730,7 @@
         clone.dataset.alternatePrice = '0';
         clone.dataset.selectedUnit = 'pc';
         clone.dataset.purchasePrice = '0';
+        clone.dataset.lpgTankPurchasePrice = '0';
         syncSaleUnitControls(clone, 'pc');
         clone.querySelectorAll('select[name="lpg_transaction_type[]"]').forEach(select => select.value = 'SWAPPED');
         clone.querySelectorAll('select[name="payment_status[]"]').forEach(select => select.value = 'PAID');

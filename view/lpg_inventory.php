@@ -94,6 +94,7 @@
 		<div class="d-flex gap-2 flex-wrap">
 			<a class="btn btn-info" href="?mainmenu=purchase_product">Stock In</a>
 			<a class="btn btn-success" href="?mainmenu=sell_product_others">Sell LPG</a>
+			<a class="btn btn-outline-secondary" href="?mainmenu=inventory_audit">Inventory Audit</a>
 		</div>
 	</div>
 

@@ -190,6 +190,7 @@
 		</div>
 		<a class="btn btn-info" href="?mainmenu=purchase_product">Purchase Stocks</a>
 		<a class="btn btn-outline-secondary" href="?mainmenu=lpg_inventory">LPG Monitor</a>
+		<a class="btn btn-outline-secondary" href="?mainmenu=inventory_audit">Inventory Audit</a>
 	</div>
 
 	<div class="dashboard-overview inventory-summary-cards margin-top">

@@ -2042,6 +2042,37 @@
 		$connectDB->query("ALTER TABLE lpg_tank_loans ADD COLUMN LoanCondition enum('','NEW','OLD') NOT NULL DEFAULT '' AFTER Status");
 	}
 
+	$createInventoryAuditsTableSql = "CREATE TABLE IF NOT EXISTS inventory_audits (
+		ID int(11) NOT NULL AUTO_INCREMENT,
+		AuditDate datetime NOT NULL,
+		Notes text NOT NULL,
+		ProductCount int(11) NOT NULL DEFAULT 0,
+		MatchCount int(11) NOT NULL DEFAULT 0,
+		OverCount int(11) NOT NULL DEFAULT 0,
+		UnderCount int(11) NOT NULL DEFAULT 0,
+		CreatedAt timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		PRIMARY KEY (ID),
+		KEY AuditDate (AuditDate)
+	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci";
+	$connectDB->query($createInventoryAuditsTableSql);
+
+	$createInventoryAuditItemsTableSql = "CREATE TABLE IF NOT EXISTS inventory_audit_items (
+		ID int(11) NOT NULL AUTO_INCREMENT,
+		Audit_ID int(11) NOT NULL DEFAULT 0,
+		Product_ID int(11) NOT NULL DEFAULT 0,
+		ProductName varchar(255) NOT NULL DEFAULT '',
+		Category varchar(100) NOT NULL DEFAULT '',
+		BaseUnit varchar(20) NOT NULL DEFAULT 'pc',
+		SystemQty decimal(12,2) NOT NULL DEFAULT 0.00,
+		ActualQty decimal(12,2) NOT NULL DEFAULT 0.00,
+		VarianceQty decimal(12,2) NOT NULL DEFAULT 0.00,
+		ItemNotes varchar(255) NOT NULL DEFAULT '',
+		PRIMARY KEY (ID),
+		KEY Audit_ID (Audit_ID),
+		KEY Product_ID (Product_ID)
+	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci";
+	$connectDB->query($createInventoryAuditItemsTableSql);
+
 	$salesLpgTransactionTypeColumnCheck = $connectDB->query("SHOW COLUMNS FROM sales LIKE 'LpgTransactionType'");
 	if ($salesLpgTransactionTypeColumnCheck && ($salesLpgTransactionTypeColumn = $salesLpgTransactionTypeColumnCheck->fetch_assoc())) {
 		if (stripos((string) ($salesLpgTransactionTypeColumn['Type'] ?? ''), 'LENT') === false) {

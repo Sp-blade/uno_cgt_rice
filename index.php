@@ -35,6 +35,14 @@
         include "process/return_lpg_tank.php";
         exit;
     }
+    if ($mainMenu === "save_inventory_audit" && $_SERVER['REQUEST_METHOD'] === 'POST') {
+        include "process/save_inventory_audit.php";
+        exit;
+    }
+    if ($mainMenu === "delete_inventory_audit") {
+        include "process/delete_inventory_audit.php";
+        exit;
+    }
     if ($mainMenu === "restore_database" && $_SERVER['REQUEST_METHOD'] === 'POST') {
         include "process/restore_database.php";
         exit;
@@ -68,7 +76,7 @@
     $purchaseMenus = ['purchase_product', 'purchase_list', 'view_invoice', 'purchase_invoice', 'view_purchase_product', 'print_purchase_invoice'];
     $expenseMenus = ['expenses', 'expenses_list', 'view_expense'];
     $salesMenus = ['sell_product_others', 'sell_product_lpg', 'sales_list', 'view_sale', 'view_sale_product', 'print_sale_receipt'];
-    $inventoryMenus = ['inventory', 'lpg_inventory'];
+    $inventoryMenus = ['inventory', 'lpg_inventory', 'inventory_audit'];
     $customerMenus = ['customers'];
     $reportMenus = [];
     $settingsMenus = ['company_profile', 'product_list', 'download_database', 'expense_category_list', 'view_expense_category'];
@@ -95,6 +103,7 @@
         'view_sale_product' => 'Sold Product Details',
         'inventory' => 'Inventory Monitor',
         'lpg_inventory' => 'LPG Inventory',
+        'inventory_audit' => 'Inventory Audit',
         'company_profile' => 'Company Profile',
         'download_database' => 'Database Backup',
     ];
@@ -171,6 +180,7 @@
                         <div class="nav-submenu">
                             <a class="sub-link <?php echo ($activeMenu == 'inventory') ? 'active' : ''; ?>" href="?mainmenu=inventory">All Products</a>
                             <a class="sub-link <?php echo ($activeMenu == 'lpg_inventory') ? 'active' : ''; ?>" href="?mainmenu=lpg_inventory">LPG Monitor</a>
+                            <a class="sub-link <?php echo ($activeMenu == 'inventory_audit') ? 'active' : ''; ?>" href="?mainmenu=inventory_audit">Inventory Audit</a>
                         </div>
                     </div>
                 </div>
@@ -324,6 +334,10 @@
                         require "view/lpg_inventory.php";
                     break;
 
+                    case "inventory_audit":
+                        require "view/inventory_audit.php";
+                    break;
+
                     case "customers":
                         require "view/customers.php";
                     break;
@@ -365,6 +379,7 @@
                 Inventory<?php if ($inventoryAlertCount > 0): ?> <span class="nav-alert-badge"><?php echo (int) $inventoryAlertCount; ?></span><?php endif; ?>
             </a>
             <a class="nav-link <?php echo ($activeMenu == 'lpg_inventory') ? 'active' : ''; ?>" href="?mainmenu=lpg_inventory">LPG Monitor</a>
+            <a class="nav-link <?php echo ($activeMenu == 'inventory_audit') ? 'active' : ''; ?>" href="?mainmenu=inventory_audit">Inventory Audit</a>
             <a class="nav-link <?php echo ($activeMenu == 'customers') ? 'active' : ''; ?>" href="?mainmenu=customers">
                 Customers<?php if ($customerDueAlertCount > 0): ?> <span class="nav-alert-badge"><?php echo (int) $customerDueAlertCount; ?></span><?php endif; ?>
             </a>
