@@ -11,12 +11,14 @@
 			COALESCE(p.CanConvertToKg, 0) AS CanConvertToKg,
 			COALESCE(p.KgEquivalentQty, 0) AS KgEquivalentQty,
 			COALESCE(p.AlternateSaleUnit, '') AS AlternateSaleUnit,
+			COALESCE(p.OpenedAlternateQty, 0) AS OpenedAlternateQty,
+			COALESCE(p.OpenedAlternateCost, 0) AS OpenedAlternateCost,
 			COALESCE(p.StockLimit, 0) AS StockLimit,
 			COALESCE(SUM(b.QuantityRemaining), 0) AS TotalStock
 		FROM products p
 		LEFT JOIN inventory_batches b ON b.Product_ID = p.Product_ID
 		WHERE p.IsActive = 1
-		GROUP BY p.Product_ID, p.ProductName, p.ProductType, p.ProductBaseUnit, p.CanConvertToKg, p.KgEquivalentQty, p.AlternateSaleUnit, p.StockLimit
+		GROUP BY p.Product_ID, p.ProductName, p.ProductType, p.ProductBaseUnit, p.CanConvertToKg, p.KgEquivalentQty, p.AlternateSaleUnit, p.OpenedAlternateQty, p.OpenedAlternateCost, p.StockLimit
 		ORDER BY p.ProductName ASC
 	");
 
@@ -27,12 +29,17 @@
 				WHEN TRIM(COALESCE(p.ProductType, '')) = '' THEN 'Products'
 				ELSE TRIM(p.ProductType)
 			END AS category_name,
+			COALESCE(p.ProductBaseUnit, 'pc') AS ProductBaseUnit,
+			COALESCE(p.CanConvertToKg, 0) AS CanConvertToKg,
+			COALESCE(p.KgEquivalentQty, 0) AS KgEquivalentQty,
+			COALESCE(p.AlternateSaleUnit, '') AS AlternateSaleUnit,
+			COALESCE(p.OpenedAlternateQty, 0) AS OpenedAlternateQty,
 			COALESCE(SUM(b.QuantityRemaining), 0) AS total_stock
 		FROM products p
 		LEFT JOIN inventory_batches b ON b.Product_ID = p.Product_ID
 		WHERE p.IsActive = 1
 			AND UPPER(COALESCE(p.ProductType, '')) <> 'LPG TANK'
-		GROUP BY category_name
+		GROUP BY p.Product_ID, category_name, p.ProductBaseUnit, p.CanConvertToKg, p.KgEquivalentQty, p.AlternateSaleUnit, p.OpenedAlternateQty
 		ORDER BY category_name ASC
 	");
 	if ($categoryStockResult && $categoryStockResult->num_rows > 0) {
@@ -41,16 +48,37 @@
 			if ($categoryName === '') {
 				$categoryName = 'Products';
 			}
-			$categoryStockTotals[$categoryName] = round((float) ($categoryStockRow['total_stock'] ?? 0), 2);
+			if (!isset($categoryStockTotals[$categoryName])) {
+				$categoryStockTotals[$categoryName] = 0.0;
+			}
+			$categoryStockTotals[$categoryName] += junkshop_effective_base_stock(
+				(float) ($categoryStockRow['total_stock'] ?? 0),
+				(float) ($categoryStockRow['OpenedAlternateQty'] ?? 0),
+				$categoryStockRow['ProductBaseUnit'] ?? 'pc',
+				(int) ($categoryStockRow['CanConvertToKg'] ?? 0),
+				(float) ($categoryStockRow['KgEquivalentQty'] ?? 0),
+				$categoryStockRow['AlternateSaleUnit'] ?? ''
+			);
+		}
+		foreach ($categoryStockTotals as $categoryName => $categoryStockAmount) {
+			$categoryStockTotals[$categoryName] = round((float) $categoryStockAmount, 2);
 		}
 	}
 
 	$totalStockValue = 0.0;
 	$totalStockValueResult = $connectDB->query("
-		SELECT COALESCE(SUM(b.QuantityRemaining * b.UnitCost), 0) AS total_value
-		FROM inventory_batches b
-		INNER JOIN products p ON p.Product_ID = b.Product_ID
-		WHERE p.IsActive = 1 AND b.QuantityRemaining > 0
+		SELECT
+			COALESCE((
+				SELECT SUM(b.QuantityRemaining * b.UnitCost)
+				FROM inventory_batches b
+				INNER JOIN products p ON p.Product_ID = b.Product_ID
+				WHERE p.IsActive = 1 AND b.QuantityRemaining > 0
+			), 0)
+			+ COALESCE((
+				SELECT SUM(p.OpenedAlternateCost)
+				FROM products p
+				WHERE p.IsActive = 1 AND COALESCE(p.OpenedAlternateQty, 0) > 0
+			), 0) AS total_value
 	");
 	if ($totalStockValueResult && $totalStockValueResult->num_rows > 0) {
 		$totalStockValue = round((float) ($totalStockValueResult->fetch_assoc()['total_value'] ?? 0), 2);
@@ -93,16 +121,37 @@
 		while ($row = $inventoryRows->fetch_assoc()) {
 			$productId = (int) ($row['Product_ID'] ?? 0);
 			$totalStock = round((float) ($row['TotalStock'] ?? 0), 2);
+			$openedAlternateQty = round((float) ($row['OpenedAlternateQty'] ?? 0), 2);
+			$openedAlternateCost = round((float) ($row['OpenedAlternateCost'] ?? 0), 2);
 			$stockLimit = round((float) ($row['StockLimit'] ?? 0), 2);
 			$baseUnit = junkshop_normalize_base_unit($row['ProductBaseUnit'] ?? 'pc');
 			$canConvert = (int) ($row['CanConvertToKg'] ?? 0);
 			$equivQty = (float) ($row['KgEquivalentQty'] ?? 0);
 			$alternateSaleUnit = trim((string) ($row['AlternateSaleUnit'] ?? ''));
-			$alternateStock = junkshop_base_qty_to_alternate($totalStock, $baseUnit, $equivQty, $alternateSaleUnit);
-			$alternateUnit = junkshop_get_alternate_sale_unit($baseUnit, $alternateSaleUnit);
-			$stockDisplay = number_format($totalStock, 2) . ' ' . junkshop_unit_label($baseUnit);
-			if ($alternateStock !== null && $alternateUnit !== null && $canConvert === 1) {
-				$stockDisplay .= ' / ' . number_format($alternateStock, 2) . ' ' . junkshop_unit_label($alternateUnit);
+			$effectiveStock = junkshop_effective_base_stock(
+				$totalStock,
+				$openedAlternateQty,
+				$baseUnit,
+				$canConvert,
+				$equivQty,
+				$alternateSaleUnit
+			);
+			if (junkshop_supports_opened_alternate_stock($baseUnit, $canConvert, $equivQty, $alternateSaleUnit)) {
+				$stockDisplay = junkshop_format_split_stock_display(
+					$totalStock,
+					$openedAlternateQty,
+					$baseUnit,
+					$canConvert,
+					$equivQty,
+					$alternateSaleUnit
+				);
+			} else {
+				$alternateStock = junkshop_base_qty_to_alternate($totalStock, $baseUnit, $equivQty, $alternateSaleUnit);
+				$alternateUnit = junkshop_get_alternate_sale_unit($baseUnit, $alternateSaleUnit);
+				$stockDisplay = number_format($totalStock, 2) . ' ' . junkshop_unit_label($baseUnit);
+				if ($alternateStock !== null && $alternateUnit !== null && $canConvert === 1) {
+					$stockDisplay .= ' / ' . number_format($alternateStock, 2) . ' ' . junkshop_unit_label($alternateUnit);
+				}
 			}
 
 			$batches = $batchHistoryByProduct[$productId] ?? [];
@@ -119,21 +168,23 @@
 				$unitCost = round((float) ($batch['UnitCost'] ?? 0), 2);
 				$stockCostValue += round($remainingQty * $unitCost, 2);
 			}
-			$stockCostValue = round($stockCostValue, 2);
-			$isLow = $stockLimit > 0 && $totalStock <= $stockLimit;
+			$stockCostValue = round($stockCostValue + $openedAlternateCost, 2);
+			$isLow = $stockLimit > 0 && $effectiveStock <= $stockLimit;
 			$category = trim((string) ($row['ProductType'] ?? ''));
 			if ($category === '') {
 				$category = 'Products';
 			}
-			$statusLabel = junkshop_inventory_status_label($totalStock, $stockLimit, $activeBatchCount);
+			$statusLabel = junkshop_inventory_status_label($effectiveStock, $stockLimit, $activeBatchCount);
 
 			$inventoryItems[] = [
 				'product_id' => $productId,
 				'product_name' => trim((string) ($row['ProductName'] ?? '')),
 				'category' => $category,
 				'base_unit' => $baseUnit,
-				'total_stock' => $totalStock,
-				'available_units' => $totalStock,
+				'total_stock' => $effectiveStock,
+				'available_units' => $effectiveStock,
+				'whole_stock' => $totalStock,
+				'opened_alternate_qty' => $openedAlternateQty,
 				'stock_display' => $stockDisplay,
 				'stock_limit' => $stockLimit,
 				'is_low' => $isLow,
@@ -186,7 +237,7 @@
 		<div>
 			<p class="section-kicker">Stock control</p>
 			<h3>Inventory Monitor</h3>
-			<p class="text-muted mb-0">Stock is consumed in first-in-first-out order. The current consuming price is the purchase cost of the oldest remaining batch.</p>
+			<p class="text-muted mb-0">Stock is consumed in first-in-first-out order. Convertible products keep whole base units separate from opened remainder (for example, sacks + leftover kg). Opened remainder is never auto-converted back into whole units.</p>
 		</div>
 		<a class="btn btn-info" href="?mainmenu=purchase_product">Purchase Stocks</a>
 		<a class="btn btn-outline-secondary" href="?mainmenu=lpg_inventory">LPG Monitor</a>
@@ -250,6 +301,7 @@
 							<?php
 								$productId = (int) ($item['product_id'] ?? 0);
 								$totalStock = (float) ($item['total_stock'] ?? 0);
+								$wholeStock = (float) ($item['whole_stock'] ?? $totalStock);
 								$batches = $item['batches'] ?? [];
 								$currentConsumingBatchId = (int) ($item['current_consuming_batch_id'] ?? 0);
 								$currentConsumingPrice = (float) ($item['current_consuming_price'] ?? 0);
@@ -279,7 +331,7 @@
 								<td><?php echo htmlspecialchars($item['category']); ?></td>
 								<td><?php echo htmlspecialchars(junkshop_unit_label($item['base_unit'])); ?></td>
 								<td class="text-end">
-									<?php if ($totalStock > 0 && $currentConsumingPrice > 0): ?>
+									<?php if ($wholeStock > 0 && $currentConsumingPrice > 0): ?>
 										<span class="fw-semibold">&#8369;<?php echo number_format($currentConsumingPrice, 2); ?></span>
 									<?php else: ?>
 										<span class="text-muted">—</span>

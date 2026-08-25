@@ -46,8 +46,7 @@
 		die();
 	}
 
-	$requestedQuantities = [];
-	$productMetaByKey = [];
+	$requestedSaleLines = [];
 	foreach ($productNames as $index => $productName) {
 		$name = trim((string) $productName);
 		$productId = (int) ($productIds[$index] ?? 0);
@@ -57,7 +56,6 @@
 		if ($name === '' || $quantity <= 0 || $price <= 0) {
 			continue;
 		}
-		$key = $productId . '|' . $name;
 		$baseUnit = 'pc';
 		$canConvert = 0;
 		$equivQty = 0;
@@ -71,9 +69,11 @@
 				$alternateSaleUnit = trim((string) ($productMetaRow['AlternateSaleUnit'] ?? ''));
 			}
 		}
-		$baseQuantity = junkshop_sale_qty_to_base($quantity, $saleUnit, $baseUnit, $equivQty, $alternateSaleUnit);
-		$requestedQuantities[$key] = ($requestedQuantities[$key] ?? 0) + $baseQuantity;
-		$productMetaByKey[$key] = [
+		$requestedSaleLines[] = [
+			'product_id' => $productId,
+			'product_name' => $name,
+			'quantity' => $quantity,
+			'sale_unit' => $saleUnit,
 			'base_unit' => $baseUnit,
 			'can_convert' => $canConvert,
 			'equiv_qty' => $equivQty,
@@ -81,29 +81,15 @@
 		];
 	}
 
-	if (empty($requestedQuantities)) {
+	if (empty($requestedSaleLines)) {
 		header("Location: " . $server . "?mainmenu=" . 'sell_product_others' . "&sale_error=empty");
 		die();
 	}
 
-	foreach ($requestedQuantities as $key => $requestedQuantity) {
-		$keyParts = explode('|', $key, 2);
-		$productId = (int) ($keyParts[0] ?? 0);
-		$name = mysqli_real_escape_string($connectDB, $keyParts[1] ?? '');
-		$productClause = junkshop_inventory_product_clause($connectDB, $productId, $keyParts[1] ?? '');
-		$stockResult = $connectDB->query("
-			SELECT COALESCE(SUM(QuantityRemaining), 0) AS AvailableStock
-			FROM inventory_batches
-			WHERE ($productClause) AND QuantityRemaining > 0
-		");
-		$availableStock = 0;
-		if ($stockResult && $stockRow = $stockResult->fetch_assoc()) {
-			$availableStock = (float) ($stockRow['AvailableStock'] ?? 0);
-		}
-		if ($requestedQuantity > $availableStock) {
-			header("Location: " . $server . "?mainmenu=" . 'sell_product_others' . "&sale_error=stock");
-			die();
-		}
+	$stockAvailability = junkshop_simulate_sale_stock_availability($connectDB, $requestedSaleLines);
+	if (!$stockAvailability['success']) {
+		header("Location: " . $server . "?mainmenu=" . 'sell_product_others' . "&sale_error=stock");
+		die();
 	}
 
 	$totalSavedSaleAmount = 0;
@@ -205,7 +191,18 @@
 			continue;
 		}
 
-		if (junkshop_get_inventory_stock($connectDB, $productId) + 0.009 < $baseQuantity) {
+		$stockCheckLines = [[
+			'product_id' => $productId,
+			'product_name' => trim((string) $productName),
+			'quantity' => $quantity,
+			'sale_unit' => $saleUnit,
+			'base_unit' => $baseUnit,
+			'can_convert' => $canConvert,
+			'equiv_qty' => $kgConversionQty > 0 ? $kgConversionQty : $equivQty,
+			'alternate_sale_unit' => $alternateSaleUnit,
+		]];
+		$lineStockCheck = junkshop_simulate_sale_stock_availability($connectDB, $stockCheckLines);
+		if (!$lineStockCheck['success']) {
 			header('Location: ' . $server . '?mainmenu=sell_product_others&sale_error=' . urlencode('Not enough inventory stock for ' . trim((string) $productName) . '.'));
 			die();
 		}
@@ -254,11 +251,16 @@
 			$totalSavedSaleAmount += $total;
 			$totalAccountPaid += $rowAmountPaid;
 			$linePurchaseCost = 0.0;
-			$fifoResult = junkshop_deduct_inventory_fifo(
+			$fifoResult = junkshop_deduct_inventory_for_sale(
 				$connectDB,
 				$productId,
 				$name,
-				$baseQuantity,
+				$quantity,
+				$saleUnit,
+				$baseUnit,
+				$canConvert,
+				$kgConversionQty > 0 ? $kgConversionQty : $equivQty,
+				$alternateSaleUnit,
 				$saleDate,
 				$saleId,
 				$deliveryNo,

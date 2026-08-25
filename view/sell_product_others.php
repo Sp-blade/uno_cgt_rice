@@ -20,6 +20,7 @@
             COALESCE(p.AlternateSaleUnit, '') AS alternate_unit,
             COALESCE(p.ProductType, '') AS type,
             COALESCE(SUM(b.QuantityRemaining), 0) AS stock,
+            COALESCE(p.OpenedAlternateQty, 0) AS opened_qty,
             COALESCE((
                 SELECT ib.UnitCost
                 FROM inventory_batches ib
@@ -55,7 +56,7 @@
         FROM products p
         LEFT JOIN inventory_batches b ON b.Product_ID = p.Product_ID
         WHERE p.IsActive = 1 AND COALESCE(p.IsSubProduct, 0) = 0 $productWhere
-        GROUP BY p.Product_ID, p.ProductName, p.SellingPrice, p.AlternateSellingPrice, p.LpgRefillPrice, p.LpgNewTankPrice, p.ProductPrice, p.ProductBaseUnit, p.CanConvertToKg, p.KgEquivalentQty, p.AlternateSaleUnit, p.ProductType
+        GROUP BY p.Product_ID, p.ProductName, p.SellingPrice, p.AlternateSellingPrice, p.LpgRefillPrice, p.LpgNewTankPrice, p.ProductPrice, p.ProductBaseUnit, p.CanConvertToKg, p.KgEquivalentQty, p.AlternateSaleUnit, p.OpenedAlternateQty, p.ProductType
         ORDER BY p.ProductName ASC
     ");
     if ($productResult && $productResult->num_rows > 0) {
@@ -145,7 +146,7 @@
 
             <datalist id="sale_product_suggestions">
                 <?php foreach ($products as $product): ?>
-                    <option value="<?php echo htmlspecialchars($product['name']); ?>" data-id="<?php echo (int) $product['id']; ?>" data-price="<?php echo htmlspecialchars((string) $product['price']); ?>" data-alternate-price="<?php echo htmlspecialchars((string) $product['alternate_price']); ?>" data-unit="<?php echo htmlspecialchars($product['unit']); ?>" data-can-convert="<?php echo (int) $product['can_convert']; ?>" data-equiv-qty="<?php echo htmlspecialchars((string) $product['equiv_qty']); ?>" data-alternate-unit="<?php echo htmlspecialchars((string) $product['alternate_unit']); ?>" data-type="<?php echo htmlspecialchars($product['type']); ?>" data-stock="<?php echo htmlspecialchars((string) $product['stock']); ?>" data-purchase-price="<?php echo htmlspecialchars((string) $product['purchase_price']); ?>"></option>
+                    <option value="<?php echo htmlspecialchars($product['name']); ?>" data-id="<?php echo (int) $product['id']; ?>" data-price="<?php echo htmlspecialchars((string) $product['price']); ?>" data-alternate-price="<?php echo htmlspecialchars((string) $product['alternate_price']); ?>" data-unit="<?php echo htmlspecialchars($product['unit']); ?>" data-can-convert="<?php echo (int) $product['can_convert']; ?>" data-equiv-qty="<?php echo htmlspecialchars((string) $product['equiv_qty']); ?>" data-alternate-unit="<?php echo htmlspecialchars((string) $product['alternate_unit']); ?>" data-type="<?php echo htmlspecialchars($product['type']); ?>" data-stock="<?php echo htmlspecialchars((string) $product['stock']); ?>" data-opened-qty="<?php echo htmlspecialchars((string) ($product['opened_qty'] ?? 0)); ?>" data-purchase-price="<?php echo htmlspecialchars((string) $product['purchase_price']); ?>"></option>
                 <?php endforeach; ?>
             </datalist>
 
@@ -647,6 +648,7 @@
             row.dataset.alternatePrice = '0';
             row.dataset.alternateUnit = '';
             row.dataset.stock = '0';
+            row.dataset.openedQty = '0';
             row.dataset.purchasePrice = '0';
             row.dataset.lpgTankPurchasePrice = '0';
             calculateSaleTotal();
@@ -663,6 +665,7 @@
         row.dataset.lpgNewTankPrice = String(product.lpg_new_tank_price || 0);
         row.dataset.lpgTankPurchasePrice = String(product.lpg_tank_purchase_price || 0);
         row.dataset.stock = String(product.stock || 0);
+        row.dataset.openedQty = String(product.opened_qty || 0);
         row.dataset.purchasePrice = String(product.purchase_price || 0);
         syncSaleUnitControls(row, row.dataset.baseUnit);
         configureLpgRow(row, product);
@@ -731,14 +734,15 @@
         clone.dataset.selectedUnit = 'pc';
         clone.dataset.purchasePrice = '0';
         clone.dataset.lpgTankPurchasePrice = '0';
+        clone.dataset.stock = '0';
+        clone.dataset.openedQty = '0';
         syncSaleUnitControls(clone, 'pc');
         clone.querySelectorAll('select[name="lpg_transaction_type[]"]').forEach(select => select.value = 'SWAPPED');
         clone.querySelectorAll('select[name="payment_status[]"]').forEach(select => select.value = 'PAID');
         clone.querySelectorAll('.row-partial-only, .row-loan-partial-only').forEach(el => el.style.display = 'none');
-        
+
         configureLpgRow(clone, null);
         updateLpgTransactionOptions();
-        clone.dataset.stock = '0';
         const cloneWarningRow = clone.querySelector('.sale-loss-warning-row');
         const cloneWarningBox = clone.querySelector('.sale-loss-warning');
         if (cloneWarningRow) cloneWarningRow.style.display = 'none';

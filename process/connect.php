@@ -165,6 +165,52 @@
 		}
 	}
 
+	if (!function_exists('junkshop_supports_opened_alternate_stock')) {
+		function junkshop_supports_opened_alternate_stock($baseUnit, $canConvert, $equivQty, $alternateSaleUnit = '') {
+			if (!junkshop_can_convert_units($baseUnit, $canConvert, $equivQty, $alternateSaleUnit)) {
+				return false;
+			}
+			$alternateUnit = junkshop_get_alternate_sale_unit($baseUnit, $alternateSaleUnit);
+			// Keep legacy pc↔kg on fractional base units; opened remainder is for 1 base = N alternate (sack/kg, tray/pc).
+			return $alternateUnit !== null && !junkshop_uses_legacy_pc_kg_conversion($baseUnit, $alternateUnit);
+		}
+	}
+
+	if (!function_exists('junkshop_format_split_stock_display')) {
+		function junkshop_format_split_stock_display($wholeBaseQty, $openedAlternateQty, $baseUnit, $canConvert, $equivQty, $alternateSaleUnit = '') {
+			$wholeBaseQty = round((float) $wholeBaseQty, 2);
+			$openedAlternateQty = round((float) $openedAlternateQty, 2);
+			$baseUnit = junkshop_normalize_base_unit($baseUnit);
+			$display = number_format($wholeBaseQty, 2) . ' ' . junkshop_unit_label($baseUnit);
+			if (
+				junkshop_supports_opened_alternate_stock($baseUnit, $canConvert, $equivQty, $alternateSaleUnit)
+				&& $openedAlternateQty > 0.009
+			) {
+				$alternateUnit = junkshop_get_alternate_sale_unit($baseUnit, $alternateSaleUnit);
+				$display .= ' + ' . number_format($openedAlternateQty, 2) . ' ' . junkshop_unit_label($alternateUnit);
+			}
+			return $display;
+		}
+	}
+
+	if (!function_exists('junkshop_effective_base_stock')) {
+		function junkshop_effective_base_stock($wholeBaseQty, $openedAlternateQty, $baseUnit, $canConvert, $equivQty, $alternateSaleUnit = '') {
+			$wholeBaseQty = round((float) $wholeBaseQty, 2);
+			$openedAlternateQty = round((float) $openedAlternateQty, 2);
+			if (!junkshop_supports_opened_alternate_stock($baseUnit, $canConvert, $equivQty, $alternateSaleUnit)) {
+				return $wholeBaseQty;
+			}
+			$openedAsBase = junkshop_sale_qty_to_base(
+				$openedAlternateQty,
+				junkshop_get_alternate_sale_unit($baseUnit, $alternateSaleUnit),
+				$baseUnit,
+				$equivQty,
+				$alternateSaleUnit
+			);
+			return round($wholeBaseQty + $openedAsBase, 2);
+		}
+	}
+
 	if (!function_exists('junkshop_conversion_label')) {
 		function junkshop_conversion_label($baseUnit, $equivQty, $alternateSaleUnit = '') {
 			$baseUnit = junkshop_normalize_base_unit($baseUnit);
@@ -881,8 +927,55 @@
 		}
 	}
 
+	if (!function_exists('junkshop_get_opened_alternate_stock')) {
+		function junkshop_get_opened_alternate_stock($connectDB, $productId) {
+			$productId = (int) $productId;
+			if ($productId <= 0) {
+				return ['qty' => 0.0, 'cost' => 0.0];
+			}
+			$result = $connectDB->query("SELECT COALESCE(OpenedAlternateQty, 0) AS opened_qty, COALESCE(OpenedAlternateCost, 0) AS opened_cost FROM products WHERE Product_ID = '$productId' LIMIT 1");
+			if ($result && ($row = $result->fetch_assoc())) {
+				return [
+					'qty' => round((float) ($row['opened_qty'] ?? 0), 2),
+					'cost' => round((float) ($row['opened_cost'] ?? 0), 2),
+				];
+			}
+			return ['qty' => 0.0, 'cost' => 0.0];
+		}
+	}
+
+	if (!function_exists('junkshop_set_opened_alternate_stock')) {
+		function junkshop_set_opened_alternate_stock($connectDB, $productId, $qty, $cost) {
+			$productId = (int) $productId;
+			if ($productId <= 0) {
+				return false;
+			}
+			$qty = round(max((float) $qty, 0), 2);
+			$cost = round(max((float) $cost, 0), 2);
+			if ($qty <= 0.009) {
+				$qty = 0.0;
+				$cost = 0.0;
+			}
+			$safeQty = mysqli_real_escape_string($connectDB, number_format($qty, 2, '.', ''));
+			$safeCost = mysqli_real_escape_string($connectDB, number_format($cost, 2, '.', ''));
+			return (bool) $connectDB->query("UPDATE products SET OpenedAlternateQty = '$safeQty', OpenedAlternateCost = '$safeCost' WHERE Product_ID = '$productId'");
+		}
+	}
+
+	if (!function_exists('junkshop_adjust_opened_alternate_stock')) {
+		function junkshop_adjust_opened_alternate_stock($connectDB, $productId, $qtyDelta, $costDelta) {
+			$current = junkshop_get_opened_alternate_stock($connectDB, $productId);
+			return junkshop_set_opened_alternate_stock(
+				$connectDB,
+				$productId,
+				$current['qty'] + (float) $qtyDelta,
+				$current['cost'] + (float) $costDelta
+			);
+		}
+	}
+
 	if (!function_exists('junkshop_deduct_inventory_fifo')) {
-		function junkshop_deduct_inventory_fifo($connectDB, $productId, $productName, $quantity, $saleDate, $saleId, $deliveryNo, $includeTankUnitCost = false) {
+		function junkshop_deduct_inventory_fifo($connectDB, $productId, $productName, $quantity, $saleDate, $saleId, $deliveryNo, $includeTankUnitCost = false, $notes = '') {
 			$productId = (int) $productId;
 			$quantity = round((float) $quantity, 2);
 			if ($productId <= 0 || $quantity <= 0) {
@@ -893,6 +986,11 @@
 			$safeSaleDate = mysqli_real_escape_string($connectDB, junkshop_normalize_datetime($saleDate));
 			$safeDeliveryNo = mysqli_real_escape_string($connectDB, trim((string) $deliveryNo));
 			$safeSaleId = (int) $saleId;
+			$movementNotes = trim((string) $notes);
+			if ($movementNotes === '') {
+				$movementNotes = 'FIFO sale deduction for Sale#' . $safeDeliveryNo;
+			}
+			$safeNotes = mysqli_real_escape_string($connectDB, $movementNotes);
 			$productClause = junkshop_inventory_product_clause($connectDB, $productId, trim((string) $productName));
 			$remainingToDeduct = $quantity;
 			$linePurchaseCost = 0.0;
@@ -920,7 +1018,7 @@
 				$connectDB->query("UPDATE inventory_batches SET QuantityRemaining = QuantityRemaining - $safeDeductQty WHERE ID = '$batchId'");
 				$connectDB->query("
 					INSERT INTO inventory_movements (Product_ID, ProductName, Batch_ID, MovementDate, MovementType, Quantity, UnitCost, TotalCost, ReferenceType, ReferenceNo, Notes)
-					VALUES ('$productId', '$safeProductName', '$batchId', '$safeSaleDate', 'OUT', '$safeDeductQty', '$safeUnitCost', '$safeDeductCost', 'SALE', 'SaleID#$safeSaleId', 'FIFO sale deduction for Sale#$safeDeliveryNo')
+					VALUES ('$productId', '$safeProductName', '$batchId', '$safeSaleDate', 'OUT', '$safeDeductQty', '$safeUnitCost', '$safeDeductCost', 'SALE', 'SaleID#$safeSaleId', '$safeNotes')
 				");
 				$remainingToDeduct -= $deductQty;
 			}
@@ -929,6 +1027,482 @@
 				'remaining' => round(max($remainingToDeduct, 0), 2),
 				'cost' => round($linePurchaseCost, 2),
 			];
+		}
+	}
+
+	if (!function_exists('junkshop_deduct_inventory_for_sale')) {
+		function junkshop_deduct_inventory_for_sale(
+			$connectDB,
+			$productId,
+			$productName,
+			$saleQuantity,
+			$saleUnit,
+			$baseUnit,
+			$canConvert,
+			$equivQty,
+			$alternateSaleUnit,
+			$saleDate,
+			$saleId,
+			$deliveryNo,
+			$includeTankUnitCost = false
+		) {
+			$productId = (int) $productId;
+			$saleQuantity = round((float) $saleQuantity, 2);
+			$saleUnit = junkshop_normalize_base_unit($saleUnit);
+			$baseUnit = junkshop_normalize_base_unit($baseUnit);
+			$equivQty = (float) $equivQty;
+			$alternateUnit = junkshop_get_alternate_sale_unit($baseUnit, $alternateSaleUnit);
+
+			if ($productId <= 0 || $saleQuantity <= 0) {
+				return ['remaining' => $saleQuantity, 'cost' => 0.0];
+			}
+
+			$usesOpened = junkshop_supports_opened_alternate_stock($baseUnit, $canConvert, $equivQty, $alternateSaleUnit)
+				&& $alternateUnit !== null
+				&& $saleUnit === $alternateUnit;
+
+			if (!$usesOpened) {
+				$baseQuantity = junkshop_sale_qty_to_base($saleQuantity, $saleUnit, $baseUnit, $equivQty, $alternateSaleUnit);
+				return junkshop_deduct_inventory_fifo(
+					$connectDB,
+					$productId,
+					$productName,
+					$baseQuantity,
+					$saleDate,
+					$saleId,
+					$deliveryNo,
+					$includeTankUnitCost
+				);
+			}
+
+			$opened = junkshop_get_opened_alternate_stock($connectDB, $productId);
+			$openedQty = $opened['qty'];
+			$openedCost = $opened['cost'];
+			$remainingNeed = $saleQuantity;
+			$linePurchaseCost = 0.0;
+
+			if ($openedQty > 0.009 && $remainingNeed > 0.009) {
+				$fromOpened = min($openedQty, $remainingNeed);
+				$fromOpenedCost = 0.0;
+				if ($openedQty > 0.009) {
+					$fromOpenedCost = round($openedCost * ($fromOpened / $openedQty), 2);
+				}
+				$openedQty = round($openedQty - $fromOpened, 2);
+				$openedCost = round($openedCost - $fromOpenedCost, 2);
+				$remainingNeed = round($remainingNeed - $fromOpened, 2);
+				$linePurchaseCost += $fromOpenedCost;
+			}
+
+			if ($remainingNeed > 0.009) {
+				$unitsToOpen = (int) ceil(($remainingNeed / $equivQty) - 0.0000001);
+				if ($unitsToOpen < 1) {
+					$unitsToOpen = 1;
+				}
+				$fifoResult = junkshop_deduct_inventory_fifo(
+					$connectDB,
+					$productId,
+					$productName,
+					$unitsToOpen,
+					$saleDate,
+					$saleId,
+					$deliveryNo,
+					$includeTankUnitCost,
+					'Opened base unit for alternate sale Sale#' . (int) $deliveryNo
+				);
+				if ($fifoResult['remaining'] > 0.009) {
+					junkshop_set_opened_alternate_stock($connectDB, $productId, $openedQty, $openedCost);
+					return [
+						'remaining' => round($remainingNeed, 2),
+						'cost' => round($linePurchaseCost, 2),
+					];
+				}
+
+				$openedFromUnits = round($unitsToOpen * $equivQty, 2);
+				$openedCostFromUnits = round((float) $fifoResult['cost'], 2);
+				$soldFromOpenedUnits = min($remainingNeed, $openedFromUnits);
+				$soldCostFromUnits = 0.0;
+				if ($openedFromUnits > 0.009) {
+					$soldCostFromUnits = round($openedCostFromUnits * ($soldFromOpenedUnits / $openedFromUnits), 2);
+				}
+				$leftoverQty = round($openedFromUnits - $soldFromOpenedUnits, 2);
+				$leftoverCost = round($openedCostFromUnits - $soldCostFromUnits, 2);
+				$openedQty = round($openedQty + $leftoverQty, 2);
+				$openedCost = round($openedCost + $leftoverCost, 2);
+				$linePurchaseCost += $soldCostFromUnits;
+				$remainingNeed = round($remainingNeed - $soldFromOpenedUnits, 2);
+			}
+
+			junkshop_set_opened_alternate_stock($connectDB, $productId, $openedQty, $openedCost);
+
+			return [
+				'remaining' => round(max($remainingNeed, 0), 2),
+				'cost' => round($linePurchaseCost, 2),
+			];
+		}
+	}
+
+	if (!function_exists('junkshop_restore_inventory_fifo_movements')) {
+		function junkshop_restore_inventory_fifo_movements($connectDB, $saleId, $productId = 0) {
+			$saleId = (int) $saleId;
+			if ($saleId <= 0) {
+				return ['success' => true, 'message' => ''];
+			}
+			$safeSaleId = $saleId;
+			$productFilter = '';
+			if ((int) $productId > 0) {
+				$productFilter = " AND Product_ID = '" . (int) $productId . "'";
+			}
+			$movementResult = $connectDB->query("
+				SELECT ID, Product_ID, ProductName, Batch_ID, Quantity, UnitCost, TotalCost, MovementDate
+				FROM inventory_movements
+				WHERE MovementType = 'OUT'
+					AND ReferenceType = 'SALE'
+					AND ReferenceNo = 'SaleID#$safeSaleId'
+					$productFilter
+				ORDER BY ID ASC
+			");
+			if (!$movementResult) {
+				return ['success' => false, 'message' => 'Unable to load inventory movements for sale restore.'];
+			}
+			while ($movement = $movementResult->fetch_assoc()) {
+				$batchId = (int) ($movement['Batch_ID'] ?? 0);
+				$qty = round((float) ($movement['Quantity'] ?? 0), 2);
+				$unitCost = round((float) ($movement['UnitCost'] ?? 0), 2);
+				$totalCost = round((float) ($movement['TotalCost'] ?? 0), 2);
+				$movementProductId = (int) ($movement['Product_ID'] ?? 0);
+				$safeProductName = mysqli_real_escape_string($connectDB, trim((string) ($movement['ProductName'] ?? '')));
+				$safeMovementDate = mysqli_real_escape_string($connectDB, junkshop_normalize_datetime($movement['MovementDate'] ?? date('Y-m-d H:i:s')));
+				$safeQty = mysqli_real_escape_string($connectDB, number_format($qty, 2, '.', ''));
+				$safeUnitCost = mysqli_real_escape_string($connectDB, number_format($unitCost, 2, '.', ''));
+				$safeTotalCost = mysqli_real_escape_string($connectDB, number_format($totalCost, 2, '.', ''));
+				if ($batchId > 0 && $qty > 0.009) {
+					if (!$connectDB->query("UPDATE inventory_batches SET QuantityRemaining = QuantityRemaining + $safeQty WHERE ID = '$batchId'")) {
+						return ['success' => false, 'message' => 'Unable to restore inventory batch quantity.'];
+					}
+				}
+				if (!$connectDB->query("
+					INSERT INTO inventory_movements (Product_ID, ProductName, Batch_ID, MovementDate, MovementType, Quantity, UnitCost, TotalCost, ReferenceType, ReferenceNo, Notes)
+					VALUES ('$movementProductId', '$safeProductName', '$batchId', '$safeMovementDate', 'RETURN', '$safeQty', '$safeUnitCost', '$safeTotalCost', 'SALE', 'SaleID#$safeSaleId', 'Restored inventory from deleted sale')
+				")) {
+					return ['success' => false, 'message' => 'Unable to record inventory restore movement.'];
+				}
+			}
+			return ['success' => true, 'message' => ''];
+		}
+	}
+
+	if (!function_exists('junkshop_reverse_lpg_sale_effects')) {
+		function junkshop_reverse_lpg_sale_effects($connectDB, $saleId) {
+			$saleId = (int) $saleId;
+			if ($saleId <= 0) {
+				return ['success' => true, 'message' => ''];
+			}
+
+			$saleResult = $connectDB->query("
+				SELECT
+					s.Product_ID,
+					s.ProductName,
+					s.Quantity,
+					COALESCE(s.SaleUnit, '') AS SaleUnit,
+					COALESCE(s.KgConversionQty, 0) AS KgConversionQty,
+					COALESCE(s.LpgTransactionType, 'NONE') AS LpgTransactionType,
+					COALESCE(s.LpgTankCondition, '') AS LpgTankCondition,
+					COALESCE(p.ProductBaseUnit, 'pc') AS ProductBaseUnit,
+					COALESCE(p.CanConvertToKg, 0) AS CanConvertToKg,
+					COALESCE(p.KgEquivalentQty, 0) AS KgEquivalentQty,
+					COALESCE(p.AlternateSaleUnit, '') AS AlternateSaleUnit
+				FROM sales s
+				LEFT JOIN products p ON p.Product_ID = s.Product_ID
+				WHERE s.ID = '$saleId'
+				LIMIT 1
+			");
+			if (!$saleResult || !($sale = $saleResult->fetch_assoc())) {
+				return ['success' => true, 'message' => ''];
+			}
+
+			$lpgTransactionType = strtoupper(trim((string) ($sale['LpgTransactionType'] ?? 'NONE')));
+			if (!in_array($lpgTransactionType, ['SWAPPED', 'LENT'], true)) {
+				return ['success' => true, 'message' => ''];
+			}
+
+			$productId = (int) ($sale['Product_ID'] ?? 0);
+			$productName = trim((string) ($sale['ProductName'] ?? ''));
+			$quantity = round((float) ($sale['Quantity'] ?? 0), 2);
+			$baseUnit = junkshop_normalize_base_unit($sale['ProductBaseUnit'] ?? 'pc');
+			$canConvert = (int) ($sale['CanConvertToKg'] ?? 0);
+			$equivQty = (float) ($sale['KgEquivalentQty'] ?? 0);
+			if ($equivQty <= 0) {
+				$equivQty = (float) ($sale['KgConversionQty'] ?? 0);
+			}
+			$alternateSaleUnit = trim((string) ($sale['AlternateSaleUnit'] ?? ''));
+			$saleUnit = junkshop_normalize_base_unit($sale['SaleUnit'] ?? $baseUnit);
+			if ($saleUnit === '') {
+				$saleUnit = $baseUnit;
+			}
+			$baseQuantity = junkshop_sale_qty_to_base($quantity, $saleUnit, $baseUnit, $equivQty, $alternateSaleUnit);
+
+			if ($lpgTransactionType === 'SWAPPED') {
+				$condition = junkshop_lpg_normalize_tank_condition($sale['LpgTankCondition'] ?? '');
+				if ($condition === '') {
+					return ['success' => false, 'message' => 'Missing swapped tank condition on deleted sale.'];
+				}
+				return junkshop_lpg_adjust_empty_balance($connectDB, $productId, $productName, $condition, -$baseQuantity);
+			}
+
+			$loanResult = $connectDB->query("SELECT ID, Status, Quantity, ReturnCondition FROM lpg_tank_loans WHERE Sale_ID = '$saleId'");
+			if (!$loanResult) {
+				return ['success' => false, 'message' => 'Unable to load lent tank records for deleted sale.'];
+			}
+
+			while ($loan = $loanResult->fetch_assoc()) {
+				$loanId = (int) ($loan['ID'] ?? 0);
+				$loanStatus = strtoupper(trim((string) ($loan['Status'] ?? '')));
+				$loanQty = round((float) ($loan['Quantity'] ?? 0), 2);
+				if ($loanStatus === 'RETURNED') {
+					$returnCondition = junkshop_lpg_normalize_tank_condition($loan['ReturnCondition'] ?? '');
+					if ($returnCondition !== '' && $loanQty > 0) {
+						$reverseReturn = junkshop_lpg_adjust_empty_balance($connectDB, $productId, $productName, $returnCondition, -$loanQty);
+						if (!$reverseReturn['success']) {
+							return $reverseReturn;
+						}
+					}
+				}
+				if ($loanId > 0 && !$connectDB->query("DELETE FROM lpg_tank_loans WHERE ID = '$loanId'")) {
+					return ['success' => false, 'message' => 'Failed to remove lent tank record for deleted sale.'];
+				}
+			}
+
+			return ['success' => true, 'message' => ''];
+		}
+	}
+
+	if (!function_exists('junkshop_restore_inventory_from_sale')) {
+		function junkshop_restore_inventory_from_sale($connectDB, $saleId) {
+			$saleId = (int) $saleId;
+			if ($saleId <= 0) {
+				return ['success' => false, 'message' => 'Invalid sale.'];
+			}
+			$saleResult = $connectDB->query("
+				SELECT
+					s.ID,
+					s.Product_ID,
+					s.ProductName,
+					s.Quantity,
+					COALESCE(s.SaleUnit, '') AS SaleUnit,
+					COALESCE(s.KgConversionQty, 0) AS KgConversionQty,
+					COALESCE(s.TotalPurchaseCost, 0) AS TotalPurchaseCost,
+					COALESCE(s.LpgTransactionType, 'NONE') AS LpgTransactionType,
+					COALESCE(p.ProductBaseUnit, 'pc') AS ProductBaseUnit,
+					COALESCE(p.CanConvertToKg, 0) AS CanConvertToKg,
+					COALESCE(p.KgEquivalentQty, 0) AS KgEquivalentQty,
+					COALESCE(p.AlternateSaleUnit, '') AS AlternateSaleUnit
+				FROM sales s
+				LEFT JOIN products p ON p.Product_ID = s.Product_ID
+				WHERE s.ID = '$saleId'
+				LIMIT 1
+			");
+			if (!$saleResult || !($sale = $saleResult->fetch_assoc())) {
+				return ['success' => false, 'message' => 'Sale not found.'];
+			}
+
+			$productId = (int) ($sale['Product_ID'] ?? 0);
+			$quantity = round((float) ($sale['Quantity'] ?? 0), 2);
+			$baseUnit = junkshop_normalize_base_unit($sale['ProductBaseUnit'] ?? 'pc');
+			$canConvert = (int) ($sale['CanConvertToKg'] ?? 0);
+			$equivQty = (float) ($sale['KgEquivalentQty'] ?? 0);
+			if ($equivQty <= 0) {
+				$equivQty = (float) ($sale['KgConversionQty'] ?? 0);
+			}
+			$alternateSaleUnit = trim((string) ($sale['AlternateSaleUnit'] ?? ''));
+			$saleUnit = junkshop_normalize_base_unit($sale['SaleUnit'] ?? $baseUnit);
+			if ($saleUnit === '') {
+				$saleUnit = $baseUnit;
+			}
+			$purchaseCost = round((float) ($sale['TotalPurchaseCost'] ?? 0), 2);
+			$alternateUnit = junkshop_get_alternate_sale_unit($baseUnit, $alternateSaleUnit);
+			$usesOpened = junkshop_supports_opened_alternate_stock($baseUnit, $canConvert, $equivQty, $alternateSaleUnit)
+				&& $alternateUnit !== null
+				&& $saleUnit === $alternateUnit;
+
+			if ($usesOpened) {
+				// Return sold alternate qty into opened remainder. Never auto-convert back into whole base units.
+				if (!junkshop_adjust_opened_alternate_stock($connectDB, $productId, $quantity, $purchaseCost)) {
+					return ['success' => false, 'message' => 'Unable to restore opened alternate stock.'];
+				}
+			} else {
+				$restoreResult = junkshop_restore_inventory_fifo_movements($connectDB, $saleId, $productId);
+				if (!$restoreResult['success']) {
+					return $restoreResult;
+				}
+			}
+
+			$lpgTransactionType = strtoupper(trim((string) ($sale['LpgTransactionType'] ?? 'NONE')));
+			if ($lpgTransactionType === 'SOLD') {
+				$tankProductId = junkshop_get_lpg_tank_product_id($connectDB, $productId);
+				if ($tankProductId > 0) {
+					$tankRestore = junkshop_restore_inventory_fifo_movements($connectDB, $saleId, $tankProductId);
+					if (!$tankRestore['success']) {
+						return $tankRestore;
+					}
+				}
+			}
+
+			$lpgReverseResult = junkshop_reverse_lpg_sale_effects($connectDB, $saleId);
+			if (!$lpgReverseResult['success']) {
+				return $lpgReverseResult;
+			}
+
+			return ['success' => true, 'message' => ''];
+		}
+	}
+
+	if (!function_exists('junkshop_simulate_sale_stock_availability')) {
+		function junkshop_simulate_sale_stock_availability($connectDB, array $lines) {
+			$stateByProduct = [];
+			foreach ($lines as $line) {
+				$productId = (int) ($line['product_id'] ?? 0);
+				$productName = trim((string) ($line['product_name'] ?? ''));
+				$saleQuantity = round((float) ($line['quantity'] ?? 0), 2);
+				$saleUnit = junkshop_normalize_base_unit($line['sale_unit'] ?? 'pc');
+				$baseUnit = junkshop_normalize_base_unit($line['base_unit'] ?? 'pc');
+				$canConvert = (int) ($line['can_convert'] ?? 0);
+				$equivQty = (float) ($line['equiv_qty'] ?? 0);
+				$alternateSaleUnit = trim((string) ($line['alternate_sale_unit'] ?? ''));
+				if ($productId <= 0 || $saleQuantity <= 0) {
+					continue;
+				}
+				if (!isset($stateByProduct[$productId])) {
+					$opened = junkshop_get_opened_alternate_stock($connectDB, $productId);
+					$stateByProduct[$productId] = [
+						'name' => $productName,
+						'whole' => junkshop_get_inventory_stock($connectDB, $productId),
+						'opened' => $opened['qty'],
+						'base_unit' => $baseUnit,
+						'can_convert' => $canConvert,
+						'equiv_qty' => $equivQty,
+						'alternate_sale_unit' => $alternateSaleUnit,
+					];
+				}
+				$state = &$stateByProduct[$productId];
+				$alternateUnit = junkshop_get_alternate_sale_unit($state['base_unit'], $state['alternate_sale_unit']);
+				$usesOpened = junkshop_supports_opened_alternate_stock(
+					$state['base_unit'],
+					$state['can_convert'],
+					$state['equiv_qty'],
+					$state['alternate_sale_unit']
+				) && $alternateUnit !== null && $saleUnit === $alternateUnit;
+
+				if ($usesOpened) {
+					$need = $saleQuantity;
+					$fromOpened = min($state['opened'], $need);
+					$state['opened'] = round($state['opened'] - $fromOpened, 2);
+					$need = round($need - $fromOpened, 2);
+					if ($need > 0.009) {
+						$unitsToOpen = (int) ceil(($need / $state['equiv_qty']) - 0.0000001);
+						if ($unitsToOpen < 1) {
+							$unitsToOpen = 1;
+						}
+						if ($state['whole'] + 0.009 < $unitsToOpen) {
+							return [
+								'success' => false,
+								'message' => 'Not enough inventory stock for ' . ($state['name'] !== '' ? $state['name'] : 'selected product') . '.',
+							];
+						}
+						$state['whole'] = round($state['whole'] - $unitsToOpen, 2);
+						$openedFromUnits = round($unitsToOpen * $state['equiv_qty'], 2);
+						$state['opened'] = round($state['opened'] + ($openedFromUnits - $need), 2);
+					}
+				} else {
+					$baseQuantity = junkshop_sale_qty_to_base(
+						$saleQuantity,
+						$saleUnit,
+						$state['base_unit'],
+						$state['equiv_qty'],
+						$state['alternate_sale_unit']
+					);
+					if ($state['whole'] + 0.009 < $baseQuantity) {
+						return [
+							'success' => false,
+							'message' => 'Not enough inventory stock for ' . ($state['name'] !== '' ? $state['name'] : 'selected product') . '.',
+						];
+					}
+					$state['whole'] = round($state['whole'] - $baseQuantity, 2);
+				}
+				unset($state);
+			}
+			return ['success' => true, 'message' => ''];
+		}
+	}
+
+	if (!function_exists('junkshop_migrate_fractional_stock_to_opened')) {
+		function junkshop_migrate_fractional_stock_to_opened($connectDB) {
+			$columnCheck = $connectDB->query("SHOW COLUMNS FROM products LIKE 'OpenedAlternateQty'");
+			if (!$columnCheck || $columnCheck->num_rows === 0) {
+				return;
+			}
+			$tableCheck = $connectDB->query("SHOW TABLES LIKE 'inventory_batches'");
+			if (!$tableCheck || $tableCheck->num_rows === 0) {
+				return;
+			}
+			$productResult = $connectDB->query("
+				SELECT
+					p.Product_ID,
+					p.ProductName,
+					COALESCE(p.ProductBaseUnit, 'pc') AS ProductBaseUnit,
+					COALESCE(p.CanConvertToKg, 0) AS CanConvertToKg,
+					COALESCE(p.KgEquivalentQty, 0) AS KgEquivalentQty,
+					COALESCE(p.AlternateSaleUnit, '') AS AlternateSaleUnit,
+					COALESCE(p.OpenedAlternateQty, 0) AS OpenedAlternateQty,
+					COALESCE(SUM(b.QuantityRemaining), 0) AS TotalStock
+				FROM products p
+				LEFT JOIN inventory_batches b ON b.Product_ID = p.Product_ID
+				WHERE p.IsActive = 1
+				GROUP BY p.Product_ID, p.ProductName, p.ProductBaseUnit, p.CanConvertToKg, p.KgEquivalentQty, p.AlternateSaleUnit, p.OpenedAlternateQty
+			");
+			if (!$productResult) {
+				return;
+			}
+			while ($product = $productResult->fetch_assoc()) {
+				$productId = (int) ($product['Product_ID'] ?? 0);
+				$baseUnit = junkshop_normalize_base_unit($product['ProductBaseUnit'] ?? 'pc');
+				$canConvert = (int) ($product['CanConvertToKg'] ?? 0);
+				$equivQty = (float) ($product['KgEquivalentQty'] ?? 0);
+				$alternateSaleUnit = trim((string) ($product['AlternateSaleUnit'] ?? ''));
+				if ($productId <= 0 || !junkshop_supports_opened_alternate_stock($baseUnit, $canConvert, $equivQty, $alternateSaleUnit)) {
+					continue;
+				}
+				$totalStock = round((float) ($product['TotalStock'] ?? 0), 2);
+				$wholeStock = floor($totalStock + 0.00001);
+				$fracBase = round($totalStock - $wholeStock, 2);
+				if ($fracBase <= 0.009) {
+					continue;
+				}
+				$productName = trim((string) ($product['ProductName'] ?? ''));
+				$fifoResult = junkshop_deduct_inventory_fifo(
+					$connectDB,
+					$productId,
+					$productName,
+					$fracBase,
+					date('Y-m-d H:i:s'),
+					0,
+					0,
+					false,
+					'Migrated fractional base stock into opened alternate remainder'
+				);
+				if ($fifoResult['remaining'] > 0.009) {
+					continue;
+				}
+				$openedQty = junkshop_base_qty_to_alternate($fracBase, $baseUnit, $equivQty, $alternateSaleUnit);
+				if ($openedQty === null) {
+					continue;
+				}
+				junkshop_adjust_opened_alternate_stock(
+					$connectDB,
+					$productId,
+					$openedQty,
+					(float) $fifoResult['cost']
+				);
+			}
 		}
 	}
 
@@ -1144,13 +1718,8 @@
 		}
 	}
 
-	if (!function_exists('junkshop_reverse_purchase_inventory')) {
-		function junkshop_reverse_purchase_inventory($connectDB, $purchaseId) {
-			$purchaseRow = junkshop_get_purchase_row($connectDB, $purchaseId);
-			if (!$purchaseRow) {
-				return ['success' => false, 'message' => 'Purchase record not found.'];
-			}
-
+	if (!function_exists('junkshop_remove_purchase_inventory_batch')) {
+		function junkshop_remove_purchase_inventory_batch($connectDB, array $purchaseRow) {
 			$purchaseQty = round((float) ($purchaseRow['Quantity'] ?? 0), 2);
 			if ($purchaseQty <= 0) {
 				return ['success' => true, 'message' => ''];
@@ -1173,6 +1742,7 @@
 
 			if ($quantityRemaining + 0.009 < $qtyToRemove) {
 				$soldQty = junkshop_get_batch_sold_quantity($batch);
+
 				return [
 					'success' => false,
 					'message' => junkshop_build_purchase_delete_block_message($purchaseRow['ProductName'] ?? 'Product', $soldQty, $quantityRemaining),
@@ -1199,6 +1769,72 @@
 			}
 
 			return ['success' => true, 'message' => ''];
+		}
+	}
+
+	if (!function_exists('junkshop_reverse_lpg_purchase_effects')) {
+		function junkshop_reverse_lpg_purchase_effects($connectDB, array $purchaseRow) {
+			$productId = (int) ($purchaseRow['Product_ID'] ?? 0);
+			$productName = trim((string) ($purchaseRow['ProductName'] ?? ''));
+			if ($productId <= 0 || !junkshop_product_is_lpg($connectDB, $productId, $productName)) {
+				return ['success' => true, 'message' => ''];
+			}
+
+			$stockInType = strtoupper(trim((string) ($purchaseRow['LpgStockInType'] ?? 'NONE')));
+			$quantity = round((float) ($purchaseRow['Quantity'] ?? 0), 2);
+			if ($quantity <= 0 || $stockInType === 'NONE') {
+				return ['success' => true, 'message' => ''];
+			}
+
+			if ($stockInType === 'REFILL') {
+				$condition = junkshop_lpg_normalize_tank_condition($purchaseRow['LpgEmptyTankCondition'] ?? '');
+				if ($condition === '') {
+					return ['success' => false, 'message' => 'Missing empty tank condition on deleted refill purchase.'];
+				}
+
+				return junkshop_lpg_adjust_empty_balance($connectDB, $productId, $productName, $condition, $quantity);
+			}
+
+			if ($stockInType === 'FULL_TANK') {
+				$tankUnitCost = round((float) ($purchaseRow['LpgTankPurchasePrice'] ?? 0), 2);
+				if ($tankUnitCost <= 0) {
+					return ['success' => true, 'message' => ''];
+				}
+
+				$tankProductId = junkshop_get_lpg_tank_product_id($connectDB, $productId);
+				if ($tankProductId <= 0) {
+					return ['success' => true, 'message' => ''];
+				}
+
+				$tankPurchaseRow = [
+					'ID' => (int) ($purchaseRow['ID'] ?? 0),
+					'InvoiceNo' => (int) ($purchaseRow['InvoiceNo'] ?? 0),
+					'Product_ID' => $tankProductId,
+					'ProductName' => junkshop_lpg_tank_product_name($productName),
+					'Quantity' => $quantity,
+					'ProductPrice' => $tankUnitCost,
+				];
+
+				return junkshop_remove_purchase_inventory_batch($connectDB, $tankPurchaseRow);
+			}
+
+			return ['success' => true, 'message' => ''];
+		}
+	}
+
+	if (!function_exists('junkshop_reverse_purchase_inventory')) {
+		function junkshop_reverse_purchase_inventory($connectDB, $purchaseId) {
+			$purchaseRow = junkshop_get_purchase_row($connectDB, $purchaseId);
+			if (!$purchaseRow) {
+				return ['success' => false, 'message' => 'Purchase record not found.'];
+			}
+
+			$inventoryResult = junkshop_remove_purchase_inventory_batch($connectDB, $purchaseRow);
+			if (!$inventoryResult['success']) {
+				return $inventoryResult;
+			}
+
+			return junkshop_reverse_lpg_purchase_effects($connectDB, $purchaseRow);
 		}
 	}
 
@@ -1587,23 +2223,40 @@
 	if (!function_exists('junkshop_count_stock_limit_alerts')) {
 		function junkshop_count_stock_limit_alerts($connectDB) {
 			$result = $connectDB->query("
-				SELECT COUNT(*) AS alert_count
-				FROM (
-					SELECT p.Product_ID
-					FROM products p
-					LEFT JOIN inventory_batches b ON b.Product_ID = p.Product_ID
-					WHERE p.IsActive = 1 AND COALESCE(p.StockLimit, 0) > 0
-					GROUP BY p.Product_ID, p.StockLimit
-					HAVING COALESCE(SUM(b.QuantityRemaining), 0) <= p.StockLimit
-				) alerts
+				SELECT
+					p.Product_ID,
+					COALESCE(p.StockLimit, 0) AS StockLimit,
+					COALESCE(p.ProductBaseUnit, 'pc') AS ProductBaseUnit,
+					COALESCE(p.CanConvertToKg, 0) AS CanConvertToKg,
+					COALESCE(p.KgEquivalentQty, 0) AS KgEquivalentQty,
+					COALESCE(p.AlternateSaleUnit, '') AS AlternateSaleUnit,
+					COALESCE(p.OpenedAlternateQty, 0) AS OpenedAlternateQty,
+					COALESCE(SUM(b.QuantityRemaining), 0) AS TotalStock
+				FROM products p
+				LEFT JOIN inventory_batches b ON b.Product_ID = p.Product_ID
+				WHERE p.IsActive = 1 AND COALESCE(p.StockLimit, 0) > 0
+				GROUP BY p.Product_ID, p.StockLimit, p.ProductBaseUnit, p.CanConvertToKg, p.KgEquivalentQty, p.AlternateSaleUnit, p.OpenedAlternateQty
 			");
 
 			if (!$result) {
 				return 0;
 			}
 
-			$row = $result->fetch_assoc();
-			return (int) ($row['alert_count'] ?? 0);
+			$alertCount = 0;
+			while ($row = $result->fetch_assoc()) {
+				$effectiveStock = junkshop_effective_base_stock(
+					(float) ($row['TotalStock'] ?? 0),
+					(float) ($row['OpenedAlternateQty'] ?? 0),
+					$row['ProductBaseUnit'] ?? 'pc',
+					(int) ($row['CanConvertToKg'] ?? 0),
+					(float) ($row['KgEquivalentQty'] ?? 0),
+					$row['AlternateSaleUnit'] ?? ''
+				);
+				if ($effectiveStock <= (float) ($row['StockLimit'] ?? 0)) {
+					$alertCount++;
+				}
+			}
+			return $alertCount;
 		}
 	}
 
@@ -1680,6 +2333,14 @@
 	$productAlternateSaleUnitColumnCheck = $connectDB->query("SHOW COLUMNS FROM products LIKE 'AlternateSaleUnit'");
 	if (!$productAlternateSaleUnitColumnCheck || $productAlternateSaleUnitColumnCheck->num_rows === 0) {
 		$connectDB->query("ALTER TABLE products ADD COLUMN AlternateSaleUnit varchar(20) NOT NULL DEFAULT '' AFTER KgEquivalentQty");
+	}
+	$productOpenedAlternateQtyColumnCheck = $connectDB->query("SHOW COLUMNS FROM products LIKE 'OpenedAlternateQty'");
+	if (!$productOpenedAlternateQtyColumnCheck || $productOpenedAlternateQtyColumnCheck->num_rows === 0) {
+		$connectDB->query("ALTER TABLE products ADD COLUMN OpenedAlternateQty decimal(12,2) NOT NULL DEFAULT 0.00 AFTER AlternateSaleUnit");
+	}
+	$productOpenedAlternateCostColumnCheck = $connectDB->query("SHOW COLUMNS FROM products LIKE 'OpenedAlternateCost'");
+	if (!$productOpenedAlternateCostColumnCheck || $productOpenedAlternateCostColumnCheck->num_rows === 0) {
+		$connectDB->query("ALTER TABLE products ADD COLUMN OpenedAlternateCost decimal(12,2) NOT NULL DEFAULT 0.00 AFTER OpenedAlternateQty");
 	}
 	$productLpgPriceColumns = [
 		'LpgRefillPrice' => "ALTER TABLE products ADD COLUMN LpgRefillPrice decimal(12,2) NOT NULL DEFAULT 0.00 AFTER AlternateSellingPrice",
@@ -1931,6 +2592,9 @@
 	if (!$inventoryMovementTotalCostColumnCheck || $inventoryMovementTotalCostColumnCheck->num_rows === 0) {
 		$connectDB->query("ALTER TABLE inventory_movements ADD COLUMN TotalCost decimal(12,2) NOT NULL DEFAULT 0.00 AFTER UnitCost");
 	}
+	if (function_exists('junkshop_migrate_fractional_stock_to_opened')) {
+		junkshop_migrate_fractional_stock_to_opened($connectDB);
+	}
 
 	$createReturnsTableSql = "CREATE TABLE IF NOT EXISTS product_returns (
 		ID int(11) NOT NULL AUTO_INCREMENT,
@@ -2072,6 +2736,19 @@
 		KEY Product_ID (Product_ID)
 	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci";
 	$connectDB->query($createInventoryAuditItemsTableSql);
+	$inventoryAuditSplitColumns = [
+		'SystemWholeQty' => "ALTER TABLE inventory_audit_items ADD COLUMN SystemWholeQty decimal(12,2) NOT NULL DEFAULT 0.00 AFTER SystemQty",
+		'SystemOpenedQty' => "ALTER TABLE inventory_audit_items ADD COLUMN SystemOpenedQty decimal(12,2) NOT NULL DEFAULT 0.00 AFTER SystemWholeQty",
+		'ActualWholeQty' => "ALTER TABLE inventory_audit_items ADD COLUMN ActualWholeQty decimal(12,2) NOT NULL DEFAULT 0.00 AFTER ActualQty",
+		'ActualOpenedQty' => "ALTER TABLE inventory_audit_items ADD COLUMN ActualOpenedQty decimal(12,2) NOT NULL DEFAULT 0.00 AFTER ActualWholeQty",
+		'AlternateUnit' => "ALTER TABLE inventory_audit_items ADD COLUMN AlternateUnit varchar(20) NOT NULL DEFAULT '' AFTER BaseUnit",
+	];
+	foreach ($inventoryAuditSplitColumns as $columnName => $alterSql) {
+		$columnCheck = $connectDB->query("SHOW COLUMNS FROM inventory_audit_items LIKE '$columnName'");
+		if (!$columnCheck || $columnCheck->num_rows === 0) {
+			$connectDB->query($alterSql);
+		}
+	}
 
 	$salesLpgTransactionTypeColumnCheck = $connectDB->query("SHOW COLUMNS FROM sales LIKE 'LpgTransactionType'");
 	if ($salesLpgTransactionTypeColumnCheck && ($salesLpgTransactionTypeColumn = $salesLpgTransactionTypeColumnCheck->fetch_assoc())) {
@@ -2114,7 +2791,96 @@
 	$companyProfileCount = $connectDB->query("SELECT COUNT(*) AS total FROM company_profile");
 	$companyProfileRowCount = $companyProfileCount ? (int) (($companyProfileCount->fetch_assoc()['total'] ?? 0)) : 0;
 	if ($companyProfileRowCount === 0) {
-		$connectDB->query("INSERT INTO company_profile (CompanyName, AddressLine1, AddressLine2, ContactNumber, TinNumber) VALUES ('UNO CGT Rice Trading', '170 R. Martinez Street, Brgy 9', 'Nasugbu, Batangas, 4231', '0921-500-6487', '220-138-725-000')");
+		$connectDB->query("INSERT INTO company_profile (CompanyName, AddressLine1, AddressLine2, ContactNumber, TinNumber) VALUES ('UNO CGT Rice Trading', 'Sample Address', 'Pampanga, PH', '123-456-7890', '000-000-000-000')");
+	}
+
+	if ($productsTableExists) {
+		$defaultRiceSackProducts = [
+			'Blueberry Premium',
+			'G4 - Buko Pandan',
+			'Nasitamu',
+			'Lacatan Sumaning',
+			'Jasmine Yellow',
+			'AC Buco Pandan',
+			'Victoria',
+			'RPL Blue',
+			'Jasmine Red',
+			'Manyaman Nasi',
+			'Oishii - Pandan',
+			'Arigatou - Pandan',
+			'Hasmin Perfect Grain',
+			'Master Chef Red',
+			'Buco Pandan',
+			'AC Denurado',
+			'Sweet Jasmine',
+			'Senyora',
+			'Golden Samurai',
+			'Sunshine',
+			'RPL Yellow',
+			'Sweet Pandan',
+			'Aroma Pandan',
+			'Moshi Moshi',
+			'Saint Nichols',
+			'Red Jasmine - Broken',
+			'AC  - Broken Broken',
+			'Mekeni',
+			'Yorme Denorado',
+		];
+		$defaultRice5kgProducts = [
+			'5kg - Mekeni Red',
+			'5kg - Yellow Jasmine',
+			'5kg - G4 Buko Pandan',
+			'5kg - Moshi Moshi',
+			'5kg - Buco Pandan',
+		];
+
+		foreach ($defaultRiceSackProducts as $productName) {
+			$safeProductName = mysqli_real_escape_string($connectDB, $productName);
+			$connectDB->query("
+				INSERT IGNORE INTO products (ProductName, ProductType, ProductBaseUnit, ProductPrice, SellingPrice, CanConvertToKg, KgEquivalentQty, AlternateSaleUnit, IsActive)
+				VALUES ('$safeProductName', 'Rice', 'sack', 0.00, 0.00, 1, 25.00, 'kg', 1)
+			");
+		}
+
+		foreach ($defaultRice5kgProducts as $productName) {
+			$safeProductName = mysqli_real_escape_string($connectDB, $productName);
+			$connectDB->query("
+				INSERT IGNORE INTO products (ProductName, ProductType, ProductBaseUnit, ProductPrice, SellingPrice, CanConvertToKg, KgEquivalentQty, AlternateSaleUnit, IsActive)
+				VALUES ('$safeProductName', 'Rice', 'pc', 0.00, 0.00, 0, 0.00, '', 1)
+			");
+		}
+
+		if (!empty($defaultRiceSackProducts)) {
+			$sackNamesList = implode(',', array_map(function ($name) use ($connectDB) {
+				return "'" . mysqli_real_escape_string($connectDB, $name) . "'";
+			}, $defaultRiceSackProducts));
+			$connectDB->query("
+				UPDATE products
+				SET ProductType = 'Rice',
+					ProductBaseUnit = 'sack',
+					CanConvertToKg = 1,
+					KgEquivalentQty = 25.00,
+					AlternateSaleUnit = 'kg'
+				WHERE ProductName IN ($sackNamesList)
+					AND COALESCE(IsSubProduct, 0) = 0
+			");
+		}
+
+		if (!empty($defaultRice5kgProducts)) {
+			$fiveKgNamesList = implode(',', array_map(function ($name) use ($connectDB) {
+				return "'" . mysqli_real_escape_string($connectDB, $name) . "'";
+			}, $defaultRice5kgProducts));
+			$connectDB->query("
+				UPDATE products
+				SET ProductType = 'Rice',
+					ProductBaseUnit = 'pc',
+					CanConvertToKg = 0,
+					KgEquivalentQty = 0.00,
+					AlternateSaleUnit = ''
+				WHERE ProductName IN ($fiveKgNamesList)
+					AND COALESCE(IsSubProduct, 0) = 0
+			");
+		}
 	}
 
 	if ($productsTableExists) {
@@ -2232,10 +2998,10 @@
 		: [
 			'ID' => 1,
 			'CompanyName' => "UNO CGT Rice Trading",
-			'AddressLine1' => '170 R. Martinez Street, Brgy 9',
-			'AddressLine2' => 'Nasugbu, Batangas, 4231',
-			'ContactNumber' => '0921-500-6487',
-			'TinNumber' => '220-138-725-000',
+			'AddressLine1' => 'Sample Address',
+			'AddressLine2' => 'Pampanga, PH',
+			'ContactNumber' => '123-456-7890',
+			'TinNumber' => '000-000-000-000',
 		];
 
 	$companyProfileId = (int) ($companyProfile['ID'] ?? 1);

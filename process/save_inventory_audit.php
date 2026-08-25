@@ -8,17 +8,22 @@
 	$auditNotes = trim((string) ($_POST['audit_notes'] ?? ''));
 	$productIds = isset($_POST['product_id']) && is_array($_POST['product_id']) ? $_POST['product_id'] : [];
 	$systemQtys = isset($_POST['system_qty']) && is_array($_POST['system_qty']) ? $_POST['system_qty'] : [];
-	$actualQtys = isset($_POST['actual_qty']) && is_array($_POST['actual_qty']) ? $_POST['actual_qty'] : [];
+	$systemWholeQtys = isset($_POST['system_whole_qty']) && is_array($_POST['system_whole_qty']) ? $_POST['system_whole_qty'] : [];
+	$systemOpenedQtys = isset($_POST['system_opened_qty']) && is_array($_POST['system_opened_qty']) ? $_POST['system_opened_qty'] : [];
+	$actualWholeQtys = isset($_POST['actual_whole_qty']) && is_array($_POST['actual_whole_qty']) ? $_POST['actual_whole_qty'] : [];
+	$actualOpenedQtys = isset($_POST['actual_opened_qty']) && is_array($_POST['actual_opened_qty']) ? $_POST['actual_opened_qty'] : [];
+	$supportsSplitFlags = isset($_POST['supports_split']) && is_array($_POST['supports_split']) ? $_POST['supports_split'] : [];
+	$baseUnits = isset($_POST['base_unit']) && is_array($_POST['base_unit']) ? $_POST['base_unit'] : [];
+	$alternateUnits = isset($_POST['alternate_unit']) && is_array($_POST['alternate_unit']) ? $_POST['alternate_unit'] : [];
+	$equivQtys = isset($_POST['equiv_qty']) && is_array($_POST['equiv_qty']) ? $_POST['equiv_qty'] : [];
 	$itemNotes = isset($_POST['item_notes']) && is_array($_POST['item_notes']) ? $_POST['item_notes'] : [];
 
 	$auditItems = [];
-	$itemCount = min(count($productIds), count($systemQtys), count($actualQtys));
+	$itemCount = min(count($productIds), count($systemQtys), count($actualWholeQtys));
 	for ($index = 0; $index < $itemCount; $index++) {
-		if (!array_key_exists($index, $actualQtys)) {
-			continue;
-		}
-		$actualRaw = trim((string) $actualQtys[$index]);
-		if ($actualRaw === '') {
+		$actualWholeRaw = trim((string) ($actualWholeQtys[$index] ?? ''));
+		$actualOpenedRaw = trim((string) ($actualOpenedQtys[$index] ?? ''));
+		if ($actualWholeRaw === '' && $actualOpenedRaw === '') {
 			continue;
 		}
 
@@ -27,8 +32,33 @@
 			continue;
 		}
 
+		$supportsSplit = (int) ($supportsSplitFlags[$index] ?? 0) === 1;
+		$baseUnit = junkshop_normalize_base_unit($baseUnits[$index] ?? 'pc');
+		$alternateUnit = junkshop_normalize_base_unit($alternateUnits[$index] ?? '');
+		$equivQty = (float) ($equivQtys[$index] ?? 0);
+		$systemWholeQty = round((float) ($systemWholeQtys[$index] ?? 0), 2);
+		$systemOpenedQty = round((float) ($systemOpenedQtys[$index] ?? 0), 2);
+		$actualWholeQty = $actualWholeRaw === '' ? 0.0 : round((float) $actualWholeRaw, 2);
+		$actualOpenedQty = $actualOpenedRaw === '' ? 0.0 : round((float) $actualOpenedRaw, 2);
 		$systemQty = round((float) ($systemQtys[$index] ?? 0), 2);
-		$actualQty = round((float) $actualRaw, 2);
+		if ($systemQty <= 0.009) {
+			$systemQty = junkshop_effective_base_stock(
+				$systemWholeQty,
+				$systemOpenedQty,
+				$baseUnit,
+				$supportsSplit ? 1 : 0,
+				$equivQty,
+				$alternateUnit
+			);
+		}
+		$actualQty = junkshop_effective_base_stock(
+			$actualWholeQty,
+			$actualOpenedQty,
+			$baseUnit,
+			$supportsSplit ? 1 : 0,
+			$equivQty,
+			$alternateUnit
+		);
 		$varianceQty = round($actualQty - $systemQty, 2);
 		$note = trim((string) ($itemNotes[$index] ?? ''));
 
@@ -49,9 +79,14 @@
 			'product_id' => $productId,
 			'product_name' => trim((string) ($productRow['ProductName'] ?? '')),
 			'category' => trim((string) ($productRow['ProductType'] ?? '')) !== '' ? trim((string) $productRow['ProductType']) : 'Products',
-			'base_unit' => junkshop_normalize_base_unit($productRow['ProductBaseUnit'] ?? 'pc'),
+			'base_unit' => $baseUnit,
+			'alternate_unit' => $supportsSplit ? $alternateUnit : '',
 			'system_qty' => $systemQty,
+			'system_whole_qty' => $systemWholeQty,
+			'system_opened_qty' => $systemOpenedQty,
 			'actual_qty' => $actualQty,
+			'actual_whole_qty' => $actualWholeQty,
+			'actual_opened_qty' => $actualOpenedQty,
 			'variance_qty' => $varianceQty,
 			'item_notes' => $note,
 		];
@@ -99,14 +134,29 @@
 			$safeProductName = mysqli_real_escape_string($connectDB, (string) ($item['product_name'] ?? ''));
 			$safeCategory = mysqli_real_escape_string($connectDB, (string) ($item['category'] ?? ''));
 			$safeBaseUnit = mysqli_real_escape_string($connectDB, (string) ($item['base_unit'] ?? 'pc'));
+			$safeAlternateUnit = mysqli_real_escape_string($connectDB, (string) ($item['alternate_unit'] ?? ''));
 			$safeSystemQty = mysqli_real_escape_string($connectDB, number_format((float) ($item['system_qty'] ?? 0), 2, '.', ''));
+			$safeSystemWholeQty = mysqli_real_escape_string($connectDB, number_format((float) ($item['system_whole_qty'] ?? 0), 2, '.', ''));
+			$safeSystemOpenedQty = mysqli_real_escape_string($connectDB, number_format((float) ($item['system_opened_qty'] ?? 0), 2, '.', ''));
 			$safeActualQty = mysqli_real_escape_string($connectDB, number_format((float) ($item['actual_qty'] ?? 0), 2, '.', ''));
+			$safeActualWholeQty = mysqli_real_escape_string($connectDB, number_format((float) ($item['actual_whole_qty'] ?? 0), 2, '.', ''));
+			$safeActualOpenedQty = mysqli_real_escape_string($connectDB, number_format((float) ($item['actual_opened_qty'] ?? 0), 2, '.', ''));
 			$safeVarianceQty = mysqli_real_escape_string($connectDB, number_format((float) ($item['variance_qty'] ?? 0), 2, '.', ''));
 			$safeItemNotes = mysqli_real_escape_string($connectDB, (string) ($item['item_notes'] ?? ''));
 
 			if (!$connectDB->query("
-				INSERT INTO inventory_audit_items (Audit_ID, Product_ID, ProductName, Category, BaseUnit, SystemQty, ActualQty, VarianceQty, ItemNotes)
-				VALUES ('$auditId', '$safeProductId', '$safeProductName', '$safeCategory', '$safeBaseUnit', '$safeSystemQty', '$safeActualQty', '$safeVarianceQty', '$safeItemNotes')
+				INSERT INTO inventory_audit_items (
+					Audit_ID, Product_ID, ProductName, Category, BaseUnit, AlternateUnit,
+					SystemQty, SystemWholeQty, SystemOpenedQty,
+					ActualQty, ActualWholeQty, ActualOpenedQty,
+					VarianceQty, ItemNotes
+				)
+				VALUES (
+					'$auditId', '$safeProductId', '$safeProductName', '$safeCategory', '$safeBaseUnit', '$safeAlternateUnit',
+					'$safeSystemQty', '$safeSystemWholeQty', '$safeSystemOpenedQty',
+					'$safeActualQty', '$safeActualWholeQty', '$safeActualOpenedQty',
+					'$safeVarianceQty', '$safeItemNotes'
+				)
 			")) {
 				throw new Exception('Unable to save one or more audit line items.');
 			}

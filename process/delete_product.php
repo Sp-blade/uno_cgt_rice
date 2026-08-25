@@ -92,6 +92,20 @@
 			$connectDB->begin_transaction();
 
 			try {
+				$salesToRestore = $connectDB->query("SELECT ID FROM sales WHERE DeliveryNo='$delivery_no'");
+				if ($salesToRestore) {
+					while ($saleRow = $salesToRestore->fetch_assoc()) {
+						$restoreResult = junkshop_restore_inventory_from_sale($connectDB, (int) ($saleRow['ID'] ?? 0));
+						if (!$restoreResult['success']) {
+							throw new Exception($restoreResult['message'] !== '' ? $restoreResult['message'] : 'restore');
+						}
+					}
+				}
+
+				if (!$connectDB->query("DELETE FROM lpg_tank_loans WHERE DeliveryNo='$delivery_no'")) {
+					throw new Exception('lpg_loan');
+				}
+
 				if (!$connectDB->query("DELETE FROM sale_app_links WHERE DeliveryNo='$delivery_no'")) {
 					throw new Exception('app');
 				}
@@ -143,6 +157,11 @@
 			$connectDB->begin_transaction();
 
 			try {
+				$restoreResult = junkshop_restore_inventory_from_sale($connectDB, (int) $product_id);
+				if (!$restoreResult['success']) {
+					throw new Exception($restoreResult['message'] !== '' ? $restoreResult['message'] : 'restore');
+				}
+
 				if (!$connectDB->query("DELETE FROM sale_app_links WHERE DeliveryNo='$sale_delivery_no' AND SaleProductName='$sale_product_name'")) {
 					throw new Exception('app');
 				}

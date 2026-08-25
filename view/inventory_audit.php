@@ -11,13 +11,17 @@
 			p.ProductName,
 			COALESCE(p.ProductType, '') AS ProductType,
 			COALESCE(p.ProductBaseUnit, 'pc') AS ProductBaseUnit,
+			COALESCE(p.CanConvertToKg, 0) AS CanConvertToKg,
+			COALESCE(p.KgEquivalentQty, 0) AS KgEquivalentQty,
+			COALESCE(p.AlternateSaleUnit, '') AS AlternateSaleUnit,
+			COALESCE(p.OpenedAlternateQty, 0) AS OpenedAlternateQty,
 			COALESCE(SUM(b.QuantityRemaining), 0) AS SystemStock
 		FROM products p
 		LEFT JOIN inventory_batches b ON b.Product_ID = p.Product_ID
 		WHERE p.IsActive = 1
 			AND UPPER(COALESCE(p.ProductType, '')) <> 'LPG TANK'
 			AND COALESCE(p.IsSubProduct, 0) = 0
-		GROUP BY p.Product_ID, p.ProductName, p.ProductType, p.ProductBaseUnit
+		GROUP BY p.Product_ID, p.ProductName, p.ProductType, p.ProductBaseUnit, p.CanConvertToKg, p.KgEquivalentQty, p.AlternateSaleUnit, p.OpenedAlternateQty
 		ORDER BY p.ProductName ASC
 	");
 	if ($productResult && $productResult->num_rows > 0) {
@@ -26,12 +30,39 @@
 			if ($category === '') {
 				$category = 'Products';
 			}
+			$baseUnit = junkshop_normalize_base_unit($row['ProductBaseUnit'] ?? 'pc');
+			$canConvert = (int) ($row['CanConvertToKg'] ?? 0);
+			$equivQty = (float) ($row['KgEquivalentQty'] ?? 0);
+			$alternateSaleUnit = trim((string) ($row['AlternateSaleUnit'] ?? ''));
+			$wholeStock = round((float) ($row['SystemStock'] ?? 0), 2);
+			$openedAlternateQty = round((float) ($row['OpenedAlternateQty'] ?? 0), 2);
+			$supportsSplit = junkshop_supports_opened_alternate_stock($baseUnit, $canConvert, $equivQty, $alternateSaleUnit);
+			$alternateUnit = junkshop_get_alternate_sale_unit($baseUnit, $alternateSaleUnit);
+			$effectiveStock = junkshop_effective_base_stock(
+				$wholeStock,
+				$openedAlternateQty,
+				$baseUnit,
+				$canConvert,
+				$equivQty,
+				$alternateSaleUnit
+			);
+			$systemDisplay = $supportsSplit
+				? junkshop_format_split_stock_display($wholeStock, $openedAlternateQty, $baseUnit, $canConvert, $equivQty, $alternateSaleUnit)
+				: number_format($wholeStock, 2) . ' ' . junkshop_unit_label($baseUnit);
 			$auditProducts[] = [
 				'product_id' => (int) ($row['Product_ID'] ?? 0),
 				'product_name' => trim((string) ($row['ProductName'] ?? '')),
 				'category' => $category,
-				'base_unit' => junkshop_normalize_base_unit($row['ProductBaseUnit'] ?? 'pc'),
-				'system_qty' => round((float) ($row['SystemStock'] ?? 0), 2),
+				'base_unit' => $baseUnit,
+				'can_convert' => $canConvert,
+				'equiv_qty' => $equivQty,
+				'alternate_sale_unit' => $alternateSaleUnit,
+				'alternate_unit' => $alternateUnit ?? '',
+				'supports_split' => $supportsSplit,
+				'whole_stock' => $wholeStock,
+				'opened_alternate_qty' => $openedAlternateQty,
+				'system_qty' => $effectiveStock,
+				'system_display' => $systemDisplay,
 			];
 		}
 	}
@@ -76,7 +107,20 @@
 		");
 		if ($auditHeaderResult && ($selectedAudit = $auditHeaderResult->fetch_assoc())) {
 			$auditItemsResult = $connectDB->query("
-				SELECT Product_ID, ProductName, Category, BaseUnit, SystemQty, ActualQty, VarianceQty, ItemNotes
+				SELECT
+					Product_ID,
+					ProductName,
+					Category,
+					BaseUnit,
+					COALESCE(AlternateUnit, '') AS AlternateUnit,
+					SystemQty,
+					COALESCE(SystemWholeQty, SystemQty) AS SystemWholeQty,
+					COALESCE(SystemOpenedQty, 0) AS SystemOpenedQty,
+					ActualQty,
+					COALESCE(ActualWholeQty, ActualQty) AS ActualWholeQty,
+					COALESCE(ActualOpenedQty, 0) AS ActualOpenedQty,
+					VarianceQty,
+					ItemNotes
 				FROM inventory_audit_items
 				WHERE Audit_ID = '$auditId'
 				ORDER BY ProductName ASC
@@ -109,7 +153,21 @@
 	}
 
 	.inventory-audit-actual-input {
-		min-width: 110px;
+		min-width: 90px;
+	}
+
+	.inventory-audit-split-inputs {
+		display: inline-flex;
+		align-items: center;
+		justify-content: flex-end;
+		gap: 0.35rem;
+		flex-wrap: wrap;
+	}
+
+	.inventory-audit-split-label {
+		font-size: 0.82rem;
+		color: #64748b;
+		white-space: nowrap;
 	}
 
 	.inventory-audit-summary-cards .summary-card {
@@ -138,7 +196,7 @@
 		<div>
 			<p class="section-kicker">Stock control</p>
 			<h3>Inventory Audit</h3>
-			<p class="text-muted mb-0">Compare system inventory with your actual store count to spot shortages and overages.</p>
+			<p class="text-muted mb-0">Compare system inventory with your actual store count to spot shortages and overages. Convertible products are counted as whole base units plus opened remainder (for example, sacks + leftover kg).</p>
 		</div>
 		<div class="d-flex gap-2 flex-wrap">
 			<a class="btn btn-outline-secondary" href="?mainmenu=inventory">All Products</a>
@@ -219,13 +277,26 @@
 										$varianceClass = 'inventory-audit-variance-under';
 									}
 									$varianceLabel = $variance > 0 ? '+' . number_format($variance, 2) : number_format($variance, 2);
+									$baseUnit = junkshop_normalize_base_unit($item['BaseUnit'] ?? 'pc');
+									$alternateUnit = junkshop_normalize_base_unit($item['AlternateUnit'] ?? '');
+									$systemWhole = round((float) ($item['SystemWholeQty'] ?? $item['SystemQty'] ?? 0), 2);
+									$systemOpened = round((float) ($item['SystemOpenedQty'] ?? 0), 2);
+									$actualWhole = round((float) ($item['ActualWholeQty'] ?? $item['ActualQty'] ?? 0), 2);
+									$actualOpened = round((float) ($item['ActualOpenedQty'] ?? 0), 2);
+									$usesSplitDisplay = $alternateUnit !== '' && $alternateUnit !== $baseUnit;
+									$systemDisplay = $usesSplitDisplay
+										? number_format($systemWhole, 2) . ' ' . junkshop_unit_label($baseUnit) . ($systemOpened > 0.009 ? ' + ' . number_format($systemOpened, 2) . ' ' . junkshop_unit_label($alternateUnit) : '')
+										: number_format((float) ($item['SystemQty'] ?? 0), 2);
+									$actualDisplay = $usesSplitDisplay
+										? number_format($actualWhole, 2) . ' ' . junkshop_unit_label($baseUnit) . ($actualOpened > 0.009 ? ' + ' . number_format($actualOpened, 2) . ' ' . junkshop_unit_label($alternateUnit) : '')
+										: number_format((float) ($item['ActualQty'] ?? 0), 2);
 								?>
 								<tr>
 									<td><?php echo htmlspecialchars(trim((string) ($item['ProductName'] ?? ''))); ?></td>
 									<td><?php echo htmlspecialchars(trim((string) ($item['Category'] ?? ''))); ?></td>
-									<td><?php echo htmlspecialchars(junkshop_unit_label($item['BaseUnit'] ?? 'pc')); ?></td>
-									<td class="text-end"><?php echo number_format((float) ($item['SystemQty'] ?? 0), 2); ?></td>
-									<td class="text-end"><?php echo number_format((float) ($item['ActualQty'] ?? 0), 2); ?></td>
+									<td><?php echo htmlspecialchars(junkshop_unit_label($baseUnit)); ?><?php echo $usesSplitDisplay ? ' / ' . htmlspecialchars(junkshop_unit_label($alternateUnit)) : ''; ?></td>
+									<td class="text-end"><?php echo htmlspecialchars($systemDisplay); ?></td>
+									<td class="text-end"><?php echo htmlspecialchars($actualDisplay); ?></td>
 									<td class="text-end <?php echo $varianceClass; ?>"><?php echo $varianceLabel; ?></td>
 									<td><?php echo htmlspecialchars(trim((string) ($item['ItemNotes'] ?? '')) !== '' ? trim((string) $item['ItemNotes']) : '—'); ?></td>
 								</tr>
@@ -308,24 +379,72 @@
 						<tbody>
 							<?php if (!empty($auditProducts)): ?>
 								<?php foreach ($auditProducts as $item): ?>
-									<tr class="inventory-audit-row">
+									<?php
+										$supportsSplit = !empty($item['supports_split']);
+										$baseUnitLabel = junkshop_unit_label($item['base_unit']);
+										$alternateUnitLabel = $supportsSplit ? junkshop_unit_label($item['alternate_unit']) : '';
+									?>
+									<tr
+										class="inventory-audit-row"
+										data-supports-split="<?php echo $supportsSplit ? '1' : '0'; ?>"
+										data-equiv-qty="<?php echo htmlspecialchars(number_format((float) ($item['equiv_qty'] ?? 0), 2, '.', ''), ENT_QUOTES); ?>"
+									>
 										<td>
 											<?php echo htmlspecialchars($item['product_name']); ?>
 											<input type="hidden" name="product_id[]" value="<?php echo (int) $item['product_id']; ?>" />
 											<input type="hidden" name="system_qty[]" value="<?php echo htmlspecialchars(number_format((float) $item['system_qty'], 2, '.', ''), ENT_QUOTES); ?>" />
+											<input type="hidden" name="system_whole_qty[]" value="<?php echo htmlspecialchars(number_format((float) $item['whole_stock'], 2, '.', ''), ENT_QUOTES); ?>" />
+											<input type="hidden" name="system_opened_qty[]" value="<?php echo htmlspecialchars(number_format((float) $item['opened_alternate_qty'], 2, '.', ''), ENT_QUOTES); ?>" />
+											<input type="hidden" name="supports_split[]" value="<?php echo $supportsSplit ? '1' : '0'; ?>" />
+											<input type="hidden" name="base_unit[]" value="<?php echo htmlspecialchars($item['base_unit']); ?>" />
+											<input type="hidden" name="alternate_unit[]" value="<?php echo htmlspecialchars($item['alternate_unit']); ?>" />
+											<input type="hidden" name="equiv_qty[]" value="<?php echo htmlspecialchars(number_format((float) ($item['equiv_qty'] ?? 0), 2, '.', ''), ENT_QUOTES); ?>" />
 										</td>
 										<td><?php echo htmlspecialchars($item['category']); ?></td>
-										<td><?php echo htmlspecialchars(junkshop_unit_label($item['base_unit'])); ?></td>
-										<td class="text-end fw-semibold audit-system-qty"><?php echo number_format((float) $item['system_qty'], 2); ?></td>
+										<td>
+											<?php if ($supportsSplit): ?>
+												<?php echo htmlspecialchars($baseUnitLabel); ?> / <?php echo htmlspecialchars($alternateUnitLabel); ?>
+											<?php else: ?>
+												<?php echo htmlspecialchars($baseUnitLabel); ?>
+											<?php endif; ?>
+										</td>
+										<td class="text-end fw-semibold audit-system-qty"><?php echo htmlspecialchars($item['system_display']); ?></td>
 										<td class="text-end">
-											<input
-												type="number"
-												step="0.01"
-												class="form-control form-control-sm inventory-audit-actual-input audit-actual-input"
-												name="actual_qty[]"
-												placeholder="Count"
-												data-system-qty="<?php echo htmlspecialchars(number_format((float) $item['system_qty'], 2, '.', ''), ENT_QUOTES); ?>"
-											/>
+											<?php if ($supportsSplit): ?>
+												<div class="inventory-audit-split-inputs">
+													<input
+														type="number"
+														step="0.01"
+														min="0"
+														class="form-control form-control-sm inventory-audit-actual-input audit-actual-whole-input"
+														name="actual_whole_qty[]"
+														placeholder="0.00"
+														data-system-whole-qty="<?php echo htmlspecialchars(number_format((float) $item['whole_stock'], 2, '.', ''), ENT_QUOTES); ?>"
+													/>
+													<span class="inventory-audit-split-label"><?php echo htmlspecialchars($baseUnitLabel); ?></span>
+													<span class="inventory-audit-split-label">+</span>
+													<input
+														type="number"
+														step="0.01"
+														min="0"
+														class="form-control form-control-sm inventory-audit-actual-input audit-actual-opened-input"
+														name="actual_opened_qty[]"
+														placeholder="0.00"
+														data-system-opened-qty="<?php echo htmlspecialchars(number_format((float) $item['opened_alternate_qty'], 2, '.', ''), ENT_QUOTES); ?>"
+													/>
+													<span class="inventory-audit-split-label"><?php echo htmlspecialchars($alternateUnitLabel); ?></span>
+												</div>
+											<?php else: ?>
+												<input
+													type="number"
+													step="0.01"
+													class="form-control form-control-sm inventory-audit-actual-input audit-actual-whole-input"
+													name="actual_whole_qty[]"
+													placeholder="Count"
+													data-system-whole-qty="<?php echo htmlspecialchars(number_format((float) $item['whole_stock'], 2, '.', ''), ENT_QUOTES); ?>"
+												/>
+												<input type="hidden" name="actual_opened_qty[]" value="" />
+											<?php endif; ?>
 										</td>
 										<td class="text-end audit-variance-cell">—</td>
 										<td>
@@ -370,6 +489,23 @@
 					return (variance > 0 ? '+' : '') + formatQty(variance);
 				}
 
+				function effectiveBaseStock(row, wholeQty, openedQty) {
+					const supportsSplit = row.dataset.supportsSplit === '1';
+					const equivQty = parseQty(row.dataset.equivQty || '0') || 0;
+					if (!supportsSplit || equivQty <= 0) {
+						return wholeQty;
+					}
+					return wholeQty + (openedQty / equivQty);
+				}
+
+				function rowHasActualCount(row) {
+					const wholeInput = row.querySelector('.audit-actual-whole-input');
+					const openedInput = row.querySelector('.audit-actual-opened-input');
+					const wholeRaw = wholeInput ? wholeInput.value.trim() : '';
+					const openedRaw = openedInput ? openedInput.value.trim() : '';
+					return wholeRaw !== '' || openedRaw !== '';
+				}
+
 				function updateAuditSummary() {
 					let counted = 0;
 					let matched = 0;
@@ -377,19 +513,23 @@
 					let under = 0;
 
 					document.querySelectorAll('.inventory-audit-row').forEach(function (row) {
-						const actualInput = row.querySelector('.audit-actual-input');
+						const wholeInput = row.querySelector('.audit-actual-whole-input');
+						const openedInput = row.querySelector('.audit-actual-opened-input');
 						const varianceCell = row.querySelector('.audit-variance-cell');
-						if (!actualInput || !varianceCell) return;
+						if (!wholeInput || !varianceCell) return;
 
-						const actualRaw = actualInput.value.trim();
-						if (actualRaw === '') {
+						if (!rowHasActualCount(row)) {
 							varianceCell.textContent = '—';
 							varianceCell.className = 'text-end audit-variance-cell';
 							return;
 						}
 
-						const systemQty = parseQty(actualInput.dataset.systemQty || '0') || 0;
-						const actualQty = parseQty(actualRaw) || 0;
+						const systemWhole = parseQty(wholeInput.dataset.systemWholeQty || '0') || 0;
+						const systemOpened = openedInput ? (parseQty(openedInput.dataset.systemOpenedQty || '0') || 0) : 0;
+						const actualWhole = wholeInput.value.trim() === '' ? 0 : (parseQty(wholeInput.value) || 0);
+						const actualOpened = openedInput && openedInput.value.trim() !== '' ? (parseQty(openedInput.value) || 0) : 0;
+						const systemQty = effectiveBaseStock(row, systemWhole, systemOpened);
+						const actualQty = effectiveBaseStock(row, actualWhole, actualOpened);
 						const variance = actualQty - systemQty;
 						counted++;
 
@@ -411,15 +551,22 @@
 					if (underEl) underEl.textContent = String(under);
 				}
 
-				document.querySelectorAll('.audit-actual-input').forEach(function (input) {
+				document.querySelectorAll('.audit-actual-whole-input, .audit-actual-opened-input').forEach(function (input) {
 					input.addEventListener('input', updateAuditSummary);
 				});
 
 				const copyBtn = document.getElementById('auditCopySystemBtn');
 				if (copyBtn) {
 					copyBtn.addEventListener('click', function () {
-						document.querySelectorAll('.audit-actual-input').forEach(function (input) {
-							input.value = formatQty(input.dataset.systemQty || '0');
+						document.querySelectorAll('.inventory-audit-row').forEach(function (row) {
+							const wholeInput = row.querySelector('.audit-actual-whole-input');
+							const openedInput = row.querySelector('.audit-actual-opened-input');
+							if (wholeInput) {
+								wholeInput.value = formatQty(wholeInput.dataset.systemWholeQty || '0');
+							}
+							if (openedInput) {
+								openedInput.value = formatQty(openedInput.dataset.systemOpenedQty || '0');
+							}
 						});
 						updateAuditSummary();
 					});
@@ -428,7 +575,7 @@
 				const clearBtn = document.getElementById('auditClearActualBtn');
 				if (clearBtn) {
 					clearBtn.addEventListener('click', function () {
-						document.querySelectorAll('.audit-actual-input').forEach(function (input) {
+						document.querySelectorAll('.audit-actual-whole-input, .audit-actual-opened-input').forEach(function (input) {
 							input.value = '';
 						});
 						updateAuditSummary();
@@ -439,8 +586,8 @@
 				if (auditForm) {
 					auditForm.addEventListener('submit', function (event) {
 						let hasActual = false;
-						document.querySelectorAll('.audit-actual-input').forEach(function (input) {
-							if (input.value.trim() !== '') {
+						document.querySelectorAll('.inventory-audit-row').forEach(function (row) {
+							if (rowHasActualCount(row)) {
 								hasActual = true;
 							}
 						});
