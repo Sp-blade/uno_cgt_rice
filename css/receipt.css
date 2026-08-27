@@ -263,10 +263,12 @@ body {
 .receipt-action-btn {
 	flex: 0 0 auto;
 	width: auto;
-	min-width: 140px;
-	min-height: 48px;
+	min-width: var(--btn-min-width, 140px);
+	min-height: var(--btn-height, 48px);
 	padding: 0.7rem 1.2rem;
-	font-size: 0.95rem;
+	font-size: inherit;
+	font-weight: 700;
+	border-radius: 14px;
 }
 
 .receipt-floating-actions {
@@ -278,8 +280,11 @@ body {
 	width: auto;
 	margin-top: 0;
 	z-index: 100;
+	padding: 16px 20px;
 	background: rgba(255, 255, 255, 0.94);
 	backdrop-filter: blur(18px);
+	border: 1px solid rgba(148, 163, 184, 0.24);
+	border-radius: 22px;
 	box-shadow: 0 30px 70px rgba(15, 23, 42, 0.14);
 }
 
@@ -287,6 +292,35 @@ body {
 	background: #fff;
 	border: 1px solid rgba(148, 163, 184, 0.36);
 	color: #0f172a;
+}
+
+@media (max-width: 1366px) and (min-width: 992px) {
+	.receipt-floating-actions {
+		left: 254px;
+		right: 14px;
+		bottom: 10px;
+		padding: 10px 12px;
+		border-radius: 16px;
+	}
+
+	.receipt-footer-metric .totalprice {
+		font-size: 1.2rem;
+	}
+
+	.receipt-action-btn {
+		min-width: 108px;
+		min-height: 40px;
+		padding: 0.5rem 0.72rem;
+		border-radius: 10px;
+	}
+}
+
+@media (max-width: 991.98px) {
+	.receipt-floating-actions {
+		left: 16px;
+		right: 16px;
+		bottom: 16px;
+	}
 }
 
 @media (max-width: 768px) {

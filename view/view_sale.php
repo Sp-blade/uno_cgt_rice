@@ -10,23 +10,6 @@
     $customerName = '';
     $saleDate = '';
     
-    $products = [];
-    
-    $allProducts = $connectDB->query("
-        SELECT
-            p.Product_ID AS id,
-            p.ProductName AS name,
-            COALESCE(NULLIF(p.SellingPrice, 0), p.ProductPrice) AS price
-        FROM products p
-        WHERE p.IsActive = 1
-        ORDER BY COALESCE(p.ParentProduct_ID, 0) ASC, p.ProductName ASC
-    ");
-    if ($allProducts && $allProducts->num_rows > 0) {
-        while ($row = $allProducts->fetch_assoc()) {
-            $products[] = $row;
-        }
-    }
-    
     if ($saleDetails && $saleDetails->num_rows > 0) {
         while ($row = $saleDetails->fetch_assoc()) {
             $saleItems[] = $row;
@@ -79,21 +62,32 @@
     $invoiceDueDate = trim((string) ($saleAccountData['DueDate'] ?? ''));
 ?>
 
-<script>
-    const soldDetailProductData = <?php echo json_encode($products); ?>;
-</script>
+<div class="container-fluid has-fixed-footer">
+    <div class="dashboard-card">
+        <div class="dashboard-list-head">
+            <div>
+                <p class="section-kicker">Sales</p>
+                <h3>Sales Invoice <?php echo $deliveryNo; ?></h3>
+            </div>
+            <div class="detail-head-meta">
+                <div class="detail-head-meta-panel detail-head-meta-columns">
+                    <div class="detail-head-meta-item">
+                        <p class="page-kicker">Customer Name</p>
+                        <h3><?php echo htmlspecialchars($customerName !== '' ? $customerName : 'Walk-in Customer'); ?></h3>
+                    </div>
+                    <div class="detail-head-meta-item">
+                        <p class="page-kicker">Date &amp; Time</p>
+                        <h3><?php echo $saleDate !== '' ? junkshop_format_datetime($saleDate) : 'Not available'; ?></h3>
+                    </div>
+                </div>
+            </div>
+        </div>
 
-<div class="container-fluid" style="padding-bottom: 80px;">
-    <h2>Sale No. <?php echo $deliveryNo; ?></h2>
-
-    <div class="table-card">
         <div class="table-responsive">
             <table class="table table-hover">
                 <thead>
                     <tr>
                         <th>No</th>
-                        <th>Date</th>
-                        <th>Customer</th>
                         <th>Product</th>
                         <th class="text-end">Qty</th>
                         <th class="text-end">Selling Price</th>
@@ -108,8 +102,6 @@
                         <?php foreach ($saleItems as $sale): ?>
                             <tr>
                                 <td><?php echo $count; ?></td>
-                                <td><?php echo junkshop_format_datetime($sale['SaleDate']); ?></td>
-                                <td><?php echo htmlspecialchars($sale['CustomerName']); ?></td>
                                 <td><?php echo htmlspecialchars($sale['ProductName']); ?></td>
                                 <td class="text-end"><?php echo number_format($sale['Quantity'], 2); ?> <?php echo htmlspecialchars(junkshop_unit_label($sale['SaleUnit'] ?? 'pc')); ?></td>
                                 <td class="text-end">&#8369;<?php echo number_format($sale['UnitPrice'], 2); ?></td>
@@ -117,24 +109,6 @@
                                 <td><?php echo htmlspecialchars($sale['Notes']); ?></td>
                                 <td class="text-center">
                                     <div class="icon-action-group justify-content-center">
-                                    <button
-                                        data-toggle="modal"
-                                        data-target="#editSaleDetails"
-                                        type="button"
-                                        class="icon-action-btn icon-action-btn-edit"
-                                        data-id="<?php echo $sale['ID']; ?>"
-                                        data-date="<?php echo junkshop_datetime_input_value($sale['SaleDate']); ?>"
-                                        data-customer="<?php echo htmlspecialchars($sale['CustomerName'], ENT_QUOTES); ?>"
-                                        data-product="<?php echo htmlspecialchars($sale['ProductName'], ENT_QUOTES); ?>"
-                                        data-quantity="<?php echo $sale['Quantity']; ?>"
-                                        data-price="<?php echo $sale['UnitPrice']; ?>"
-                                        data-total="<?php echo $sale['TotalSalePrice']; ?>"
-                                        data-notes="<?php echo htmlspecialchars($sale['Notes'], ENT_QUOTES); ?>"
-                                        aria-label="Edit sale item <?php echo $count; ?>"
-                                        title="Edit"
-                                    >
-                                        <i class="bi bi-pencil-square" aria-hidden="true"></i>
-                                    </button>
                                     <a
                                         href="<?php echo $server; ?>?mainmenu=view_sale&deliveryNo=<?php echo $deliveryNo; ?>&return_to=<?php echo urlencode($returnTo); ?>&delete_product=1&ID=<?php echo $sale['ID']; ?>"
                                         class="icon-action-btn icon-action-btn-delete"
@@ -150,7 +124,7 @@
                             <?php $count++; ?>
                         <?php endforeach; ?>
                     <?php else: ?>
-                            <tr><td colspan="9" class="empty-state">No sale details found.</td></tr>
+                            <tr><td colspan="7" class="empty-state">No sale details found.</td></tr>
                         <?php endif; ?>
                 </tbody>
             </table>
@@ -204,67 +178,17 @@
     </div>
 </div>
 
-<div class="row custom-row fixed-footer">
+<div class="row custom-row fixed-footer footer-layout-single">
     <div class="col-md-2 col-12 footer-action">
-        <a class="btn btn-info form-control" href="<?php echo $encodedReturnTo; ?>">Back</a>
+        <a class="btn btn-info w-100" href="<?php echo $encodedReturnTo; ?>">Back</a>
     </div>
     <div class="col-md-2 col-12 footer-action">
         <?php if (!empty($saleItems)): ?>
-			<a class="btn btn-outline-secondary form-control" href="<?php echo $server; ?>?mainmenu=print_sale_receipt&amp;deliveryNo=<?php echo (int) $deliveryNo; ?>&amp;return_to=<?php echo urlencode('?mainmenu=view_sale&deliveryNo=' . (int) $deliveryNo . '&return_to=' . $returnTo); ?>">Print Receipt</a>
+			<a class="btn btn-outline-secondary w-100" href="<?php echo $server; ?>?mainmenu=print_sale_receipt&amp;deliveryNo=<?php echo (int) $deliveryNo; ?>&amp;return_to=<?php echo urlencode('?mainmenu=view_sale&deliveryNo=' . (int) $deliveryNo . '&return_to=' . $returnTo); ?>">Print Receipt</a>
         <?php endif; ?>
     </div>
-    <!-- Adjusted Footer to only show Sale Total -->
-    <div class="col-md-8 col-12 footer-metric d-flex justify-content-end align-items-center">
-        <p class="mb-0 me-3" style="font-size: 1.1rem; color: #64748b;"><strong>Sale Total:</strong></p>
-        <div class="totalprice" style="font-size: 1.5rem; color: #0f172a; font-weight: 700;">&#8369;<?php echo number_format($saleTotal, 2); ?></div>
+    <div class="col-md-2 col-6 footer-metric">
+        <p class="metric-label">Sale Total</p>
+        <div class="totalprice">&#8369;<?php echo number_format($saleTotal, 2); ?></div>
     </div>
 </div>
-
-<script>
-    $(document).ready(function () {
-        $('#editSaleDetails').on('show.bs.modal', function (event) {
-            var button = $(event.relatedTarget);
-            var modal = $(this);
-            modal.find('input[name="ID"]').val(button.data('id'));
-            modal.find('input[name="sale_date"]').val(button.data('date'));
-            modal.find('input[name="customer_name"]').val(button.data('customer'));
-            modal.find('input[name="product_name"]').val(button.data('product'));
-            modal.find('input[name="Quantity"]').val(button.data('quantity'));
-            modal.find('input[name="unit_price"]').val(button.data('price'));
-            modal.find('input[name="total_sale_price"]').val(button.data('total'));
-            modal.find('input[name="sale_notes"]').val(button.data('notes'));
-        });
-
-        $('#editSaleDetails').on('input', 'input[name="Quantity"], input[name="unit_price"]', function () {
-            var modal = $('#editSaleDetails');
-            var quantity = parseFloat(modal.find('input[name="Quantity"]').val()) || 0;
-            var price = parseFloat(modal.find('input[name="unit_price"]').val()) || 0;
-            modal.find('input[name="total_sale_price"]').val((quantity * price).toFixed(2));
-        });
-    });
-
-    function validateSoldDetailSelection(inputElement) {
-        const selectedProduct = soldDetailProductData.find(function(product) {
-            return product.name === inputElement.value;
-        });
-
-        if (!selectedProduct) {
-            alert('Please select a valid product from the suggestions.');
-            inputElement.value = '';
-            document.getElementById('detail_product_id').value = '';
-            document.getElementById('detail_product_price').value = '';
-            document.getElementById('detail_total_sale_price').value = '';
-            return;
-        }
-
-        document.getElementById('detail_product_id').value = selectedProduct.id || '';
-        document.getElementById('detail_product_price').value = selectedProduct.price || 0;
-        calculateDetailSaleTotal();
-    }
-
-    function calculateDetailSaleTotal() {
-        const quantity = parseFloat(document.getElementById('detail_quantity').value) || 0;
-        const price = parseFloat(document.getElementById('detail_product_price').value) || 0;
-        document.getElementById('detail_total_sale_price').value = (quantity * price).toFixed(2);
-    }
-</script>

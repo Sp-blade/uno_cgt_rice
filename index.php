@@ -15,6 +15,10 @@
         include "process/save_company_profile.php";
         exit;
     }
+    if ($mainMenu === "save_app_appearance") {
+        include "process/save_app_appearance.php";
+        exit;
+    }
     if ($mainMenu === "save_customer") {
         include "process/manage_customer.php";
         exit;
@@ -79,14 +83,14 @@
     $inventoryMenus = ['inventory', 'lpg_inventory', 'inventory_audit'];
     $customerMenus = ['customers'];
     $reportMenus = [];
-    $settingsMenus = ['company_profile', 'product_list', 'download_database', 'expense_category_list', 'view_expense_category'];
+    $settingsMenus = ['company_profile', 'app_appearance', 'product_list', 'download_database', 'expense_category_list', 'view_expense_category'];
 
     $pageTitles = [
         '' => 'Dashboard',
         'product_list' => 'Product List',
         'purchase_product' => 'Purchase Stocks',
         'purchase_list' => 'Purchase History',
-        'view_invoice' => 'Invoice Details',
+        'view_invoice' => 'Purchase Order Details',
         'print_purchase_invoice' => 'Purchase Invoice',
         'view_purchase_product' => 'Stock Purchase Details',
         'expenses' => 'Expenses',
@@ -98,13 +102,14 @@
         'sell_product_lpg' => 'Sell Product',
         'sale_invoice' => 'Sale Receipt',
         'sales_list' => 'Sales History',
-        'view_sale' => 'Sale Details',
+        'view_sale' => 'Sales Invoice Details',
         'print_sale_receipt' => 'Sale Receipt',
         'view_sale_product' => 'Sold Product Details',
         'inventory' => 'Inventory Monitor',
         'lpg_inventory' => 'LPG Inventory',
         'inventory_audit' => 'Inventory Audit',
         'company_profile' => 'Company Profile',
+        'app_appearance' => 'App Colors',
         'download_database' => 'Database Backup',
     ];
 
@@ -204,6 +209,7 @@
                             <a class="sub-link <?php echo (in_array($activeMenu, ['expense_category_list', 'view_expense_category'])) ? 'active' : ''; ?>" href="?mainmenu=expense_category_list">Expense Category List</a>
                             <a class="sub-link <?php echo ($activeMenu == 'download_database') ? 'active' : ''; ?>" href="?mainmenu=download_database">Database Backup</a>
                             <a class="sub-link <?php echo ($activeMenu == 'company_profile') ? 'active' : ''; ?>" href="?mainmenu=company_profile">Company Profile</a>
+                            <a class="sub-link <?php echo ($activeMenu == 'app_appearance') ? 'active' : ''; ?>" href="?mainmenu=app_appearance">App Colors</a>
                         </div>
                     </div>
                 </div>
@@ -346,6 +352,10 @@
                         require "view/company_profile.php";
                     break;
 
+                    case "app_appearance":
+                        require "view/app_appearance.php";
+                    break;
+
                     case "download_database":
                         require "view/download_database.php";
                     break;
@@ -387,6 +397,7 @@
             <a class="nav-link <?php echo (in_array($activeMenu, ['expense_category_list', 'view_expense_category'])) ? 'active' : ''; ?>" href="?mainmenu=expense_category_list">Expense Categories</a>
             <a class="nav-link <?php echo ($activeMenu == 'download_database') ? 'active' : ''; ?>" href="?mainmenu=download_database">Database Backup</a>
             <a class="nav-link <?php echo ($activeMenu == 'company_profile') ? 'active' : ''; ?>" href="?mainmenu=company_profile">Company Profile</a>
+            <a class="nav-link <?php echo ($activeMenu == 'app_appearance') ? 'active' : ''; ?>" href="?mainmenu=app_appearance">App Colors</a>
         </nav>
     </div>
 </div>

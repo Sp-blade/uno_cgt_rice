@@ -59,14 +59,14 @@
 		</div>
 	</div>
 
-	<div class="row custom-row fixed-footer">
+	<div class="row custom-row fixed-footer footer-layout-single">
 		<div class="col-md-2 col-12 footer-action">
 			<button type="button" class="btn btn-info w-100" id="addExpenseButton">+ Add</button>
 		</div>
 		<div class="col-md-2 col-12 footer-action">
 			<input type="submit" class="btn btn-success w-100" value="Save Expenses">
 		</div>
-		<div class="col-md-5 col-12 footer-metric">
+		<div class="col-md-2 col-6 footer-metric">
 			<p class="metric-label">Total Expenses</p>
 			<div class="totalprice">&#8369;<span id="expenseGrandTotal">0.00</span></div>
 		</div>

@@ -5,6 +5,19 @@
 
     $allPurchases = "SELECT * FROM purchases WHERE InvoiceNo = ".$invoiceNo." ORDER BY ID DESC";
     $purchaseList = $connectDB->query($allPurchases);
+
+    $purchaseItems = [];
+    $invoiceTotalPrice = 0;
+    $productCount = 0;
+    $purchaseDate = junkshop_normalize_datetime('');
+    if ($purchaseList && $purchaseList->num_rows > 0) {
+        while ($Product = $purchaseList->fetch_assoc()) {
+            $purchaseItems[] = $Product;
+            $productCount++;
+            $purchaseDate = $Product['PurchaseDate'];
+            $invoiceTotalPrice += (float) ($Product['TotalPurchasePrice'] ?? 0);
+        }
+    }
 	
 	$products = [];
 	$sql_selectProducts = "
@@ -32,16 +45,32 @@
 	
 	
 ?>
-<div class="container-fluid" style="padding-bottom: 80px;">
-	<h2>Invoice Number <?php echo $invoiceNo; ?></h2>
+<div class="container-fluid has-fixed-footer">
+	<div class="dashboard-card">
+		<div class="dashboard-list-head">
+			<div>
+				<p class="section-kicker">Purchase</p>
+				<h3>PO Number <?php echo $invoiceNo; ?></h3>
+			</div>
+			<div class="detail-head-meta">
+				<div class="detail-head-meta-grid">
+					<div>
+						<p class="page-kicker">Date &amp; Time</p>
+						<h3><?php echo $purchaseDate !== '' ? junkshop_format_datetime($purchaseDate) : 'Not available'; ?></h3>
+					</div>
+					<div>
+						<p class="page-kicker">Items</p>
+						<h3><?php echo $productCount; ?></h3>
+					</div>
+				</div>
+			</div>
+		</div>
 
-	<div class="table-card">
 		<div class="table-responsive">
 			<table class="table table-hover">
 				<thead>
 					<tr>
 						<th scope="col">No</th>
-						<th scope="col">Date & Time</th>
 						<th scope="col">Product Name</th>
 						<th scope="col" class="text-end">Pcs/Kg</th>
 						<th scope="col" class="text-end">Purchase Price</th>
@@ -52,18 +81,11 @@
 				<tbody>
 
 		<?php
-			$invoiceTotalPrice = 0;
-			$productCount = 0;
-			$purchaseItems = [];
-			$purchaseDate = junkshop_normalize_datetime('');
-			while($Product = $purchaseList->fetch_assoc()){
-				$productCount++;
-				$purchaseItems[] = $Product;
-				$purchaseDate = $Product['PurchaseDate'];
-				$invoiceTotalPrice = $invoiceTotalPrice + $Product['TotalPurchasePrice'];
-				echo "<tr>";
-					echo "<td>" . $productCount . "</td>";
-					echo "<td>" . junkshop_format_datetime($Product['PurchaseDate']) . "</td>";
+			if (!empty($purchaseItems)):
+				foreach ($purchaseItems as $index => $Product):
+					$rowNumber = $index + 1;
+					echo "<tr>";
+					echo "<td>" . $rowNumber . "</td>";
 					echo "<td>" . $Product['ProductName'] . "</td>";
 					echo "<td class='text-end'>" . number_format($Product['Quantity'], 2) . "</td>";
 					echo "<td class='text-end'>&#8369;" . number_format($Product['ProductPrice'], 2) . "</td>";
@@ -91,31 +113,36 @@
 						</a>";
 					echo "</div>";
 					echo "</td>";
-				echo "</tr>";
-			}
+					echo "</tr>";
+				endforeach;
+			else:
 		?>
+					<tr><td colspan="6" class="empty-state">No purchase items found.</td></tr>
+		<?php endif; ?>
 				</tbody>
 			</table>
 		</div>
 	</div>
 </div>
-<div class="row custom-row fixed-footer" >
+<div class="row custom-row fixed-footer footer-layout-dual">
     <div class="col-md-2 col-12 footer-action">
-        <a class="btn btn-info form-control" href="<?php echo $encodedReturnTo; ?>">Back</a>
+        <a class="btn btn-info w-100" href="<?php echo $encodedReturnTo; ?>">Back</a>
     </div>
 	<div class="col-md-2 col-12 footer-action">
-		<button data-toggle='modal' data-target='#addNewProduct' class='btn btn-outline-secondary form-control'>Add Item</button>
+		<button data-toggle='modal' data-target='#addNewProduct' class='btn btn-outline-secondary w-100'>Add Item</button>
     </div>
 	<div class="col-md-2 col-12 footer-action">
 		<?php if ($productCount > 0): ?>
-			<a class="btn btn-outline-secondary form-control" href="<?php echo $server; ?>?mainmenu=print_purchase_invoice&amp;invoiceNo=<?php echo (int) $invoiceNo; ?>&amp;return_to=<?php echo urlencode('?mainmenu=view_invoice&invoiceNo=' . (int) $invoiceNo . '&searchInvoice=' . urlencode($searchInvoice) . '&return_to=' . urlencode($returnTo)); ?>">Print Invoice</a>
+			<a class="btn btn-outline-secondary w-100" href="<?php echo $server; ?>?mainmenu=print_purchase_invoice&amp;invoiceNo=<?php echo (int) $invoiceNo; ?>&amp;return_to=<?php echo urlencode('?mainmenu=view_invoice&invoiceNo=' . (int) $invoiceNo . '&searchInvoice=' . urlencode($searchInvoice) . '&return_to=' . urlencode($returnTo)); ?>">Print Invoice</a>
 		<?php endif; ?>
     </div>
     <div class="col-md-2 col-6 footer-metric">
-        <p><strong>Total Item:</strong><br><span class="totalprice"><?php echo $productCount; ?></span></p>
+        <p class="metric-label">Total Item</p>
+        <div class="totalprice"><?php echo $productCount; ?></div>
     </div>
-    <div class="col-md-4 col-6 footer-metric">
-        <p><strong>Total Purchase Price:</strong><br><span class="totalprice">&#8369;<?php echo number_format($invoiceTotalPrice, 2); ?></span></p>
+    <div class="col-md-2 col-6 footer-metric">
+        <p class="metric-label">Total Purchase Price</p>
+        <div class="totalprice">&#8369;<?php echo number_format($invoiceTotalPrice, 2); ?></div>
     </div>
 </div>
 

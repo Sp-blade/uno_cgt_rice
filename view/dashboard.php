@@ -319,7 +319,7 @@
 						<thead>
 							<tr>
 								<th>Date</th>
-								<th>Sale No</th>
+								<th>Sales Invoice</th>
 								<th>Customer</th>
 								<th>Summary</th>
 								<th>Note</th>
@@ -375,7 +375,7 @@
 	</div>
 </div>
 
-<div class="row fixed-footer dashboard-footer-metrics">
+<div class="row custom-row fixed-footer dashboard-footer-metrics">
 	<div class="col-6 col-xl footer-metric">
 		<p class="metric-label">Total Sales</p>
 		<div class="totalprice">&#8369;<?php echo number_format($salesTotal, 2); ?></div>

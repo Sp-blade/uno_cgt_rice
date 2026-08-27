@@ -37,7 +37,7 @@
 	$saleQuantity = 0;
 ?>
 
-<div class="container-fluid" style="padding-bottom: 80px;">
+<div class="container-fluid has-fixed-footer">
 	<h2>Sold/Delivery: <?php echo htmlspecialchars($productName !== '' ? $productName : 'Product'); ?></h2>
 	<?php if ($productId > 0): ?>
 		<p class="text-muted mb-1">Product ID: <?php echo (int) $productId; ?></p>
@@ -82,14 +82,16 @@
 	</div>
 </div>
 
-<div class="row custom-row fixed-footer">
-	<div class="col-sm-2 footer-action">
-		<a class="btn btn-info form-control" href="<?php echo htmlspecialchars($returnTo, ENT_QUOTES); ?>">Back</a>
+<div class="row custom-row fixed-footer footer-layout-dual">
+	<div class="col-md-2 col-12 footer-action">
+		<a class="btn btn-info w-100" href="<?php echo htmlspecialchars($returnTo, ENT_QUOTES); ?>">Back</a>
 	</div>
-	<div class="col-sm-2 footer-metric">
-		<p><strong>Total Pcs/Kg:</strong><br><span class="totalprice"><?php echo number_format($saleQuantity, 2); ?></span></p>
+	<div class="col-md-2 col-6 footer-metric">
+		<p class="metric-label">Total Pcs/Kg</p>
+		<div class="totalprice"><?php echo number_format($saleQuantity, 2); ?></div>
 	</div>
-	<div class="col-sm-3 footer-metric">
-		<p><strong>Total Sold:</strong><br><span class="totalprice">&#8369;<?php echo number_format($saleTotal, 2); ?></span></p>
+	<div class="col-md-2 col-6 footer-metric">
+		<p class="metric-label">Total Sold</p>
+		<div class="totalprice">&#8369;<?php echo number_format($saleTotal, 2); ?></div>
 	</div>
 </div>

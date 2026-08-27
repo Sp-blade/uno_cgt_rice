@@ -211,6 +211,60 @@
 		}
 	}
 
+	if (!function_exists('junkshop_inventory_variance_label')) {
+		function junkshop_inventory_variance_label(
+			$systemWholeQty,
+			$systemOpenedQty,
+			$actualWholeQty,
+			$actualOpenedQty,
+			$baseUnit,
+			$alternateUnit = '',
+			$equivQty = 0
+		) {
+			$baseUnit = junkshop_normalize_base_unit($baseUnit);
+			$alternateUnit = trim((string) $alternateUnit);
+			$alternateUnit = $alternateUnit !== '' ? junkshop_normalize_base_unit($alternateUnit) : '';
+			$equivQty = (float) $equivQty;
+			$usesSplitUnits = $alternateUnit !== '' && $alternateUnit !== $baseUnit && $equivQty > 0;
+
+			if ($usesSplitUnits) {
+				$systemTotal = ((float) $systemWholeQty * $equivQty) + (float) $systemOpenedQty;
+				$actualTotal = ((float) $actualWholeQty * $equivQty) + (float) $actualOpenedQty;
+				$difference = round($actualTotal - $systemTotal, 2);
+			} else {
+				$difference = round((float) $actualWholeQty - (float) $systemWholeQty, 2);
+			}
+
+			if (abs($difference) < 0.009) {
+				return 'Matched';
+			}
+
+			$status = $difference < 0 ? '-' : '+';
+			$absoluteDifference = abs($difference);
+
+			if (!$usesSplitUnits) {
+				return $status . number_format($absoluteDifference, 2) . ' ' . junkshop_unit_label($baseUnit);
+			}
+
+			$wholeUnits = (int) floor(($absoluteDifference + 0.000001) / $equivQty);
+			$alternateRemainder = round($absoluteDifference - ($wholeUnits * $equivQty), 2);
+			if ($alternateRemainder >= $equivQty - 0.009) {
+				$wholeUnits++;
+				$alternateRemainder = 0;
+			}
+
+			$parts = [];
+			if ($wholeUnits > 0) {
+				$parts[] = number_format($wholeUnits, 2) . ' ' . junkshop_unit_label($baseUnit);
+			}
+			if ($alternateRemainder > 0.009 || empty($parts)) {
+				$parts[] = number_format($alternateRemainder, 2) . ' ' . junkshop_unit_label($alternateUnit);
+			}
+
+			return $status . implode("\n", $parts);
+		}
+	}
+
 	if (!function_exists('junkshop_conversion_label')) {
 		function junkshop_conversion_label($baseUnit, $equivQty, $alternateSaleUnit = '') {
 			$baseUnit = junkshop_normalize_base_unit($baseUnit);
@@ -2742,6 +2796,7 @@
 		'ActualWholeQty' => "ALTER TABLE inventory_audit_items ADD COLUMN ActualWholeQty decimal(12,2) NOT NULL DEFAULT 0.00 AFTER ActualQty",
 		'ActualOpenedQty' => "ALTER TABLE inventory_audit_items ADD COLUMN ActualOpenedQty decimal(12,2) NOT NULL DEFAULT 0.00 AFTER ActualWholeQty",
 		'AlternateUnit' => "ALTER TABLE inventory_audit_items ADD COLUMN AlternateUnit varchar(20) NOT NULL DEFAULT '' AFTER BaseUnit",
+		'EquivalentQty' => "ALTER TABLE inventory_audit_items ADD COLUMN EquivalentQty decimal(12,2) NOT NULL DEFAULT 0.00 AFTER AlternateUnit",
 	];
 	foreach ($inventoryAuditSplitColumns as $columnName => $alterSql) {
 		$columnCheck = $connectDB->query("SHOW COLUMNS FROM inventory_audit_items LIKE '$columnName'");
@@ -2792,6 +2847,22 @@
 	$companyProfileRowCount = $companyProfileCount ? (int) (($companyProfileCount->fetch_assoc()['total'] ?? 0)) : 0;
 	if ($companyProfileRowCount === 0) {
 		$connectDB->query("INSERT INTO company_profile (CompanyName, AddressLine1, AddressLine2, ContactNumber, TinNumber) VALUES ('UNO CGT Rice Trading', 'Sample Address', 'Pampanga, PH', '123-456-7890', '000-000-000-000')");
+	}
+
+	$createAppSettingsTableSql = "CREATE TABLE IF NOT EXISTS app_settings (
+		ID int(11) NOT NULL AUTO_INCREMENT,
+		ThemeMode varchar(20) NOT NULL DEFAULT 'default',
+		CustomPrimary varchar(7) NOT NULL DEFAULT '#0f766e',
+		CustomAccent varchar(7) NOT NULL DEFAULT '#f59e0b',
+		CustomBackground varchar(7) NOT NULL DEFAULT '#eff4f8',
+		PRIMARY KEY (ID)
+	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci";
+	$connectDB->query($createAppSettingsTableSql);
+
+	$appSettingsCount = $connectDB->query("SELECT COUNT(*) AS total FROM app_settings");
+	$appSettingsRowCount = $appSettingsCount ? (int) (($appSettingsCount->fetch_assoc()['total'] ?? 0)) : 0;
+	if ($appSettingsRowCount === 0) {
+		$connectDB->query("INSERT INTO app_settings (ThemeMode, CustomPrimary, CustomAccent, CustomBackground) VALUES ('default', '#0f766e', '#f59e0b', '#eff4f8')");
 	}
 
 	if ($productsTableExists) {
@@ -3030,6 +3101,173 @@
 	}
 
 	$companyInitials = junkshop_company_initials($companyName);
+
+	if (!function_exists('junkshop_normalize_hex_color')) {
+		function junkshop_normalize_hex_color($value, $fallback = '#000000') {
+			$value = trim((string) $value);
+			if (preg_match('/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/', $value) !== 1) {
+				return $fallback;
+			}
+
+			if (strlen($value) === 4) {
+				return strtolower('#' . $value[1] . $value[1] . $value[2] . $value[2] . $value[3] . $value[3]);
+			}
+
+			return strtolower($value);
+		}
+	}
+
+	if (!function_exists('junkshop_hex_to_rgb')) {
+		function junkshop_hex_to_rgb($hex) {
+			$hex = ltrim(junkshop_normalize_hex_color($hex), '#');
+			return [
+				'r' => hexdec(substr($hex, 0, 2)),
+				'g' => hexdec(substr($hex, 2, 2)),
+				'b' => hexdec(substr($hex, 4, 2)),
+			];
+		}
+	}
+
+	if (!function_exists('junkshop_rgb_to_hex')) {
+		function junkshop_rgb_to_hex($r, $g, $b) {
+			return sprintf(
+				'#%02x%02x%02x',
+				max(0, min(255, (int) round($r))),
+				max(0, min(255, (int) round($g))),
+				max(0, min(255, (int) round($b)))
+			);
+		}
+	}
+
+	if (!function_exists('junkshop_adjust_hex_color')) {
+		function junkshop_adjust_hex_color($hex, $percent) {
+			$rgb = junkshop_hex_to_rgb($hex);
+			foreach (['r', 'g', 'b'] as $channel) {
+				if ($percent >= 0) {
+					$rgb[$channel] = $rgb[$channel] + ((255 - $rgb[$channel]) * ($percent / 100));
+				} else {
+					$rgb[$channel] = $rgb[$channel] * (1 + ($percent / 100));
+				}
+			}
+
+			return junkshop_rgb_to_hex($rgb['r'], $rgb['g'], $rgb['b']);
+		}
+	}
+
+	if (!function_exists('junkshop_hex_luminance')) {
+		function junkshop_hex_luminance($hex) {
+			$rgb = junkshop_hex_to_rgb($hex);
+			$channels = [];
+			foreach (['r', 'g', 'b'] as $channel) {
+				$value = $rgb[$channel] / 255;
+				$channels[$channel] = $value <= 0.04045
+					? $value / 12.92
+					: pow(($value + 0.055) / 1.055, 2.4);
+			}
+
+			return (0.2126 * $channels['r']) + (0.7152 * $channels['g']) + (0.0722 * $channels['b']);
+		}
+	}
+
+	if (!function_exists('junkshop_contrast_ratio')) {
+		function junkshop_contrast_ratio($first, $second) {
+			$firstLuminance = junkshop_hex_luminance($first);
+			$secondLuminance = junkshop_hex_luminance($second);
+			return (max($firstLuminance, $secondLuminance) + 0.05)
+				/ (min($firstLuminance, $secondLuminance) + 0.05);
+		}
+	}
+
+	if (!function_exists('junkshop_contrast_text_color')) {
+		function junkshop_contrast_text_color($background) {
+			$dark = '#0f172a';
+			$light = '#ffffff';
+			return junkshop_contrast_ratio($dark, $background) >= junkshop_contrast_ratio($light, $background)
+				? $dark
+				: $light;
+		}
+	}
+
+	if (!function_exists('junkshop_readable_color')) {
+		function junkshop_readable_color($color, $background, $minimumRatio = 4.5) {
+			$color = junkshop_normalize_hex_color($color);
+			$background = junkshop_normalize_hex_color($background);
+			if (junkshop_contrast_ratio($color, $background) >= $minimumRatio) {
+				return $color;
+			}
+
+			return junkshop_contrast_text_color($background);
+		}
+	}
+
+	if (!function_exists('junkshop_rgba_from_hex')) {
+		function junkshop_rgba_from_hex($hex, $alpha) {
+			$rgb = junkshop_hex_to_rgb($hex);
+			return 'rgba(' . $rgb['r'] . ', ' . $rgb['g'] . ', ' . $rgb['b'] . ', ' . $alpha . ')';
+		}
+	}
+
+	if (!function_exists('junkshop_build_custom_theme_vars')) {
+		function junkshop_build_custom_theme_vars($primary, $accent, $background) {
+			$primary = junkshop_normalize_hex_color($primary, '#0f766e');
+			$accent = junkshop_normalize_hex_color($accent, '#f59e0b');
+			$background = junkshop_normalize_hex_color($background, '#eff4f8');
+			$isLight = junkshop_hex_luminance($background) >= 0.32;
+			$surfaceStrong = $isLight ? '#ffffff' : '#1e293b';
+
+			return [
+				'--app-bg' => $background,
+				'--surface' => $isLight ? 'rgba(255, 255, 255, 0.9)' : 'rgba(30, 41, 59, 0.88)',
+				'--surface-strong' => $surfaceStrong,
+				'--surface-muted' => $isLight ? '#f8fafc' : '#1e293b',
+				'--stroke' => $isLight ? 'rgba(148, 163, 184, 0.24)' : 'rgba(148, 163, 184, 0.18)',
+				'--text' => $isLight ? '#0f172a' : '#f1f5f9',
+				'--text-soft' => $isLight ? '#64748b' : '#cbd5e1',
+				'--primary' => $primary,
+				'--primary-deep' => junkshop_adjust_hex_color($primary, -18),
+				'--primary-light' => junkshop_adjust_hex_color($primary, 18),
+				'--primary-text' => junkshop_readable_color($primary, $surfaceStrong),
+				'--primary-contrast' => junkshop_contrast_text_color($primary),
+				'--primary-soft' => junkshop_rgba_from_hex($primary, $isLight ? 0.14 : 0.18),
+				'--accent' => $accent,
+				'--accent-contrast' => junkshop_contrast_text_color($accent),
+				'--info-text' => $isLight ? '#0369a1' : '#7dd3fc',
+				'--view-text' => $isLight ? '#1d4ed8' : '#93c5fd',
+				'--danger-text' => $isLight ? '#b91c1c' : '#fca5a5',
+				'--success-text' => $isLight ? '#15803d' : '#86efac',
+				'--warning-text' => $isLight ? '#a16207' : '#fde68a',
+				'--body-gradient-teal' => junkshop_rgba_from_hex($primary, $isLight ? 0.18 : 0.14),
+				'--body-gradient-accent' => junkshop_rgba_from_hex($accent, $isLight ? 0.18 : 0.12),
+				'--body-gradient-top' => $isLight ? junkshop_adjust_hex_color($background, 4) : junkshop_adjust_hex_color($background, 8),
+				'--shadow-lg' => $isLight ? '0 30px 70px rgba(15, 23, 42, 0.12)' : '0 30px 70px rgba(0, 0, 0, 0.35)',
+				'--shadow-md' => $isLight ? '0 18px 40px rgba(15, 23, 42, 0.08)' : '0 18px 40px rgba(0, 0, 0, 0.25)',
+			];
+		}
+	}
+
+	$appSettingsResult = $connectDB->query("SELECT * FROM app_settings ORDER BY ID ASC LIMIT 1");
+	$appSettings = $appSettingsResult && $appSettingsResult->num_rows > 0
+		? $appSettingsResult->fetch_assoc()
+		: [
+			'ID' => 1,
+			'ThemeMode' => 'default',
+			'CustomPrimary' => '#0f766e',
+			'CustomAccent' => '#f59e0b',
+			'CustomBackground' => '#eff4f8',
+		];
+
+	$appThemeMode = strtolower(trim((string) ($appSettings['ThemeMode'] ?? 'default')));
+	if (!in_array($appThemeMode, ['default', 'dark', 'custom'], true)) {
+		$appThemeMode = 'default';
+	}
+
+	$appThemeCustomPrimary = junkshop_normalize_hex_color($appSettings['CustomPrimary'] ?? '#0f766e', '#0f766e');
+	$appThemeCustomAccent = junkshop_normalize_hex_color($appSettings['CustomAccent'] ?? '#f59e0b', '#f59e0b');
+	$appThemeCustomBackground = junkshop_normalize_hex_color($appSettings['CustomBackground'] ?? '#eff4f8', '#eff4f8');
+	$appThemeCssVars = $appThemeMode === 'custom'
+		? junkshop_build_custom_theme_vars($appThemeCustomPrimary, $appThemeCustomAccent, $appThemeCustomBackground)
+		: [];
+	$appSettingsId = (int) ($appSettings['ID'] ?? 1);
 
 	$server = "/uno_cgt_rice/";
 ?>

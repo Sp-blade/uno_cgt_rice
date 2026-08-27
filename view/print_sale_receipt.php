@@ -144,7 +144,7 @@
 
 					<div class="receipt-meta">
 						<div>
-							<span class="meta-label">Invoice</span>
+							<span class="meta-label">Sales Invoice</span>
 							<strong>#<?php echo str_pad((string) $deliveryNo, 5, '0', STR_PAD_LEFT); ?></strong>
 						</div>
 						<div>

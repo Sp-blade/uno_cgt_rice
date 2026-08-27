@@ -85,13 +85,14 @@
 ?>
 
 <div class="dashboard-card">
-	<div class="section-head">
+	<div class="section-head inventory-section-head">
 		<div>
 			<p class="section-kicker">LPG retail</p>
 			<h3>LPG Inventory Monitor</h3>
 			<p class="text-muted mb-0">Track filled LPG stock, empty tanks by condition, and tanks currently lent to customers.</p>
 		</div>
-		<div class="d-flex gap-2 flex-wrap">
+		<div class="inventory-header-actions d-flex gap-2 flex-wrap">
+			<a class="btn btn-outline-secondary" href="?mainmenu=inventory">All Products</a>
 			<a class="btn btn-info" href="?mainmenu=purchase_product">Stock In</a>
 			<a class="btn btn-success" href="?mainmenu=sell_product_others">Sell LPG</a>
 			<a class="btn btn-outline-secondary" href="?mainmenu=inventory_audit">Inventory Audit</a>

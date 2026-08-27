@@ -234,22 +234,22 @@
     </div>
 
     <div class="row custom-row fixed-footer">
-        <div class="col-md-2 col-12 footer-action"><button type="button" class="btn btn-info w-100" id="addSaleRowButton">+ Add</button></div>
-        <div class="col-md-2 col-12 footer-action">
+        <div class="col-auto footer-action"><button type="button" class="btn btn-info" id="addSaleRowButton">+ Add</button></div>
+        <div class="col-auto footer-action">
             <input type="hidden" id="saleGrandTotalInput" name="grandTotal" value="0.00" />
             <input type="hidden" id="saleAmountDueInput" name="amount_due" value="0.00" />
-            <input type="submit" class="btn btn-success w-100" value="Continue">
+            <input type="submit" class="btn btn-success" value="Continue">
         </div>
-        <div class="col-md-1 col-6 footer-metric"><p class="metric-label">Count</p><div class="totalprice"><span id="saleItemCount">1</span></div></div>
-        <div class="col-md-2 col-6 footer-metric"><p class="metric-label">Grand Total</p><div class="totalprice">&#8369;<span id="saleGrandTotal">0.00</span></div></div>
-        <div class="col-md-2 col-6 footer-metric"><p class="metric-label">Amount Due</p><div class="totalprice text-warning">&#8369;<span id="saleAmountDue">0.00</span></div></div>
-        <div class="col-md-1 col-6 footer-metric">
+        <div class="col-auto footer-metric"><p class="metric-label">Count</p><div class="totalprice"><span id="saleItemCount">1</span></div></div>
+        <div class="col-auto footer-metric"><p class="metric-label">Grand Total</p><div class="totalprice">&#8369;<span id="saleGrandTotal">0.00</span></div></div>
+        <div class="col-auto footer-metric"><p class="metric-label">Amount Due</p><div class="totalprice text-warning">&#8369;<span id="saleAmountDue">0.00</span></div></div>
+        <div class="col-auto footer-metric footer-field">
             <p class="metric-label">Cash</p>
-            <input type="number" step="0.01" min="0" class="form-control form-control-sm border-success" id="cash_given" name="cash_given" oninput="calculateSaleTotal()" />
+            <input type="number" step="0.01" min="0" class="form-control form-control-sm footer-input border-success" id="cash_given" name="cash_given" oninput="calculateSaleTotal()" />
         </div>
-        <div class="col-md-2 col-6 footer-metric">
+        <div class="col-auto footer-metric footer-field">
             <p class="metric-label">Change</p>
-            <input type="text" class="form-control form-control-sm border-primary bg-light" id="change_amount" readonly />
+            <input type="text" class="form-control form-control-sm footer-input border-primary bg-light" id="change_amount" readonly />
         </div>
     </div>
 </form>

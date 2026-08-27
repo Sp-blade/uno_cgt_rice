@@ -30,7 +30,7 @@
 
 				<div class="receipt-meta">
 					<div>
-						<span class="meta-label">Invoice</span>
+						<span class="meta-label">Sales Invoice</span>
 						<strong>#<?php echo $invoice; ?></strong>
 					</div>
 					<div>

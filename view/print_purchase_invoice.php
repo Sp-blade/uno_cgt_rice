@@ -53,7 +53,7 @@
 						<div class="delivery-invoice-meta">
 							<div class="delivery-invoice-meta-grid">
 								<div>
-									<span>Invoice #</span>
+									<span>PO #</span>
 									<strong><?php echo $invoiceNo; ?></strong>
 								</div>
 								<div>

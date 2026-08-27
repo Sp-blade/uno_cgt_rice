@@ -60,6 +60,9 @@
 			$alternateUnit
 		);
 		$varianceQty = round($actualQty - $systemQty, 2);
+		$comparisonDifference = $supportsSplit && $equivQty > 0
+			? round((($actualWholeQty - $systemWholeQty) * $equivQty) + ($actualOpenedQty - $systemOpenedQty), 2)
+			: round($actualWholeQty - $systemWholeQty, 2);
 		$note = trim((string) ($itemNotes[$index] ?? ''));
 
 		$productResult = $connectDB->query("
@@ -81,6 +84,7 @@
 			'category' => trim((string) ($productRow['ProductType'] ?? '')) !== '' ? trim((string) $productRow['ProductType']) : 'Products',
 			'base_unit' => $baseUnit,
 			'alternate_unit' => $supportsSplit ? $alternateUnit : '',
+			'equivalent_qty' => $supportsSplit ? $equivQty : 0,
 			'system_qty' => $systemQty,
 			'system_whole_qty' => $systemWholeQty,
 			'system_opened_qty' => $systemOpenedQty,
@@ -88,6 +92,7 @@
 			'actual_whole_qty' => $actualWholeQty,
 			'actual_opened_qty' => $actualOpenedQty,
 			'variance_qty' => $varianceQty,
+			'comparison_difference' => $comparisonDifference,
 			'item_notes' => $note,
 		];
 	}
@@ -101,7 +106,7 @@
 	$overCount = 0;
 	$underCount = 0;
 	foreach ($auditItems as $item) {
-		$variance = (float) ($item['variance_qty'] ?? 0);
+		$variance = (float) ($item['comparison_difference'] ?? 0);
 		if (abs($variance) < 0.009) {
 			$matchCount++;
 		} elseif ($variance > 0) {
@@ -135,6 +140,7 @@
 			$safeCategory = mysqli_real_escape_string($connectDB, (string) ($item['category'] ?? ''));
 			$safeBaseUnit = mysqli_real_escape_string($connectDB, (string) ($item['base_unit'] ?? 'pc'));
 			$safeAlternateUnit = mysqli_real_escape_string($connectDB, (string) ($item['alternate_unit'] ?? ''));
+			$safeEquivalentQty = mysqli_real_escape_string($connectDB, number_format((float) ($item['equivalent_qty'] ?? 0), 2, '.', ''));
 			$safeSystemQty = mysqli_real_escape_string($connectDB, number_format((float) ($item['system_qty'] ?? 0), 2, '.', ''));
 			$safeSystemWholeQty = mysqli_real_escape_string($connectDB, number_format((float) ($item['system_whole_qty'] ?? 0), 2, '.', ''));
 			$safeSystemOpenedQty = mysqli_real_escape_string($connectDB, number_format((float) ($item['system_opened_qty'] ?? 0), 2, '.', ''));
@@ -146,13 +152,13 @@
 
 			if (!$connectDB->query("
 				INSERT INTO inventory_audit_items (
-					Audit_ID, Product_ID, ProductName, Category, BaseUnit, AlternateUnit,
+					Audit_ID, Product_ID, ProductName, Category, BaseUnit, AlternateUnit, EquivalentQty,
 					SystemQty, SystemWholeQty, SystemOpenedQty,
 					ActualQty, ActualWholeQty, ActualOpenedQty,
 					VarianceQty, ItemNotes
 				)
 				VALUES (
-					'$auditId', '$safeProductId', '$safeProductName', '$safeCategory', '$safeBaseUnit', '$safeAlternateUnit',
+					'$auditId', '$safeProductId', '$safeProductName', '$safeCategory', '$safeBaseUnit', '$safeAlternateUnit', '$safeEquivalentQty',
 					'$safeSystemQty', '$safeSystemWholeQty', '$safeSystemOpenedQty',
 					'$safeActualQty', '$safeActualWholeQty', '$safeActualOpenedQty',
 					'$safeVarianceQty', '$safeItemNotes'

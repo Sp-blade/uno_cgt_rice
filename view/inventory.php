@@ -220,7 +220,7 @@
 
 	.inventory-batch-table th,
 	.inventory-batch-table td {
-		font-size: 0.92rem;
+		font-size: inherit;
 	}
 
 	.inventory-status-consuming {
@@ -233,15 +233,17 @@
 </style>
 
 <div class="dashboard-card">
-	<div class="section-head">
+	<div class="section-head inventory-section-head">
 		<div>
 			<p class="section-kicker">Stock control</p>
 			<h3>Inventory Monitor</h3>
 			<p class="text-muted mb-0">Stock is consumed in first-in-first-out order. Convertible products keep whole base units separate from opened remainder (for example, sacks + leftover kg). Opened remainder is never auto-converted back into whole units.</p>
 		</div>
-		<a class="btn btn-info" href="?mainmenu=purchase_product">Purchase Stocks</a>
-		<a class="btn btn-outline-secondary" href="?mainmenu=lpg_inventory">LPG Monitor</a>
-		<a class="btn btn-outline-secondary" href="?mainmenu=inventory_audit">Inventory Audit</a>
+		<div class="inventory-header-actions d-flex gap-2 flex-wrap">
+			<a class="btn btn-info" href="?mainmenu=purchase_product">Purchase Stocks</a>
+			<a class="btn btn-outline-secondary" href="?mainmenu=lpg_inventory">LPG Monitor</a>
+			<a class="btn btn-outline-secondary" href="?mainmenu=inventory_audit">Inventory Audit</a>
+		</div>
 	</div>
 
 	<div class="dashboard-overview inventory-summary-cards margin-top">

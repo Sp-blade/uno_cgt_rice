@@ -20,7 +20,7 @@
 
     <form method="GET" class="list-toolbar">
         <input type="hidden" name="mainmenu" value="purchase_list" />
-        <input type="text" class="searchbox" name="searchInvoice" placeholder="Search Invoice Number / Product" value="<?php echo htmlspecialchars($searchInvoice); ?>" />
+        <input type="text" class="searchbox" name="searchInvoice" placeholder="Search PO Number / Product" value="<?php echo htmlspecialchars($searchInvoice); ?>" />
         <button type="submit" class="btn btn-primary">Search</button>
     </form>
 
@@ -30,7 +30,7 @@
                 <thead>
                     <tr>
                         <th scope="col" class="text-right-align">Date & Time</th>
-                        <th scope="col" class="text-right-align">Invoice Number</th>
+                        <th scope="col" class="text-right-align">PO Number</th>
                         <th scope="col" class="text-right-align">Summary</th>
                         <th scope="col" class="text-right-align">Items</th>
                         <th scope="col" class="text-right-align">Total Purchase Price</th>
@@ -58,8 +58,8 @@ if ($purchaseList && $purchaseList->num_rows > 0) {
 
 		echo "<td class='text-center'>";
 			echo "<div class='icon-action-group justify-content-center'>";
-			echo "<a class='icon-action-btn icon-action-btn-view' href='?mainmenu=view_invoice&searchInvoice=" . urlencode($searchInvoice) . "&invoiceNo=" . $Product['InvoiceNo'] . "&return_to=" . urlencode($_SERVER['REQUEST_URI']) . "' aria-label='View invoice " . $Product['InvoiceNo'] . "' title='View'><i class='bi bi-eye' aria-hidden='true'></i></a>";
-			echo "<a class='icon-action-btn icon-action-btn-delete js-history-delete' href='?mainmenu=purchase_list&delete_product=1&searchInvoice=" . urlencode($searchInvoice) . "&invoiceNo=" . $Product['InvoiceNo'] . "' data-record-label='Invoice No. " . $Product['InvoiceNo'] . "' aria-label='Delete invoice " . $Product['InvoiceNo'] . "' title='Delete'><i class='bi bi-trash3' aria-hidden='true'></i></a>";
+			echo "<a class='icon-action-btn icon-action-btn-view' href='?mainmenu=view_invoice&searchInvoice=" . urlencode($searchInvoice) . "&invoiceNo=" . $Product['InvoiceNo'] . "&return_to=" . urlencode($_SERVER['REQUEST_URI']) . "' aria-label='View PO " . $Product['InvoiceNo'] . "' title='View'><i class='bi bi-eye' aria-hidden='true'></i></a>";
+			echo "<a class='icon-action-btn icon-action-btn-delete js-history-delete' href='?mainmenu=purchase_list&delete_product=1&searchInvoice=" . urlencode($searchInvoice) . "&invoiceNo=" . $Product['InvoiceNo'] . "' data-record-label='PO Number " . $Product['InvoiceNo'] . "' aria-label='Delete PO " . $Product['InvoiceNo'] . "' title='Delete'><i class='bi bi-trash3' aria-hidden='true'></i></a>";
 			echo "</div>";
 		echo "</td>";
 		echo "</tr>";

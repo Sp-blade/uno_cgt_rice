@@ -432,7 +432,7 @@
 							<table class="table table-sm mb-0">
 								<thead>
 									<tr>
-										<th>Sale No</th>
+										<th>Sales Invoice</th>
 										<th>Sale Date</th>
 										<th>Due Date</th>
 										<th>Status</th>
@@ -476,7 +476,7 @@
 						<table class="table table-sm table-hover">
 							<thead>
 								<tr>
-									<th>Sale No</th>
+									<th>Sales Invoice</th>
 									<th>Sale Date</th>
 									<th>Due Date</th>
 									<th>Status</th>
@@ -500,7 +500,7 @@
 							<thead>
 								<tr>
 									<th>Date</th>
-									<th>Sale No</th>
+									<th>Sales Invoice</th>
 									<th class="text-end">Amount</th>
 									<th>Notes</th>
 									<th class="text-center">Actions</th>
@@ -591,7 +591,7 @@
 						<input type="text" class="form-control" id="edit_due_date_customer_display" readonly />
 					</div>
 					<div class="mb-3">
-						<label class="form-label">Sale No</label>
+						<label class="form-label">Sales Invoice</label>
 						<input type="text" class="form-control" id="edit_due_date_sale_no" readonly />
 					</div>
 					<div>

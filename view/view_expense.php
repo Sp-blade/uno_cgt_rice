@@ -5,7 +5,6 @@
 	$expenseDetails = $connectDB->query("SELECT * FROM expenses WHERE ExpenseNo = '$expenseNo' ORDER BY ID ASC");
 	$expenseTotal = 0;
 	$expenseItemCount = 0;
-	$linkedDeliveryNo = 0;
 	$expenseCategories = [];
 	$categoryResult = $connectDB->query("SELECT CategoryName FROM expense_categories WHERE IsActive = 1 ORDER BY CategoryName ASC");
 	if ($categoryResult && $categoryResult->num_rows > 0) {
@@ -13,64 +12,34 @@
 			$expenseCategories[] = $row['CategoryName'];
 		}
 	}
-	$latestExpenseDate = date('Y-m-d');
-	$linkedDeliveryTotal = 0;
-	$expenseSummaryResult = $connectDB->query("SELECT COUNT(ID) AS item_count, COALESCE(SUM(Amount), 0) AS total_amount, MAX(DeliveryNo) AS delivery_no, MIN(ExpenseDate) AS expense_date FROM expenses WHERE ExpenseNo = '$expenseNo'");
+	$summaryExpenseDate = date('Y-m-d');
+	$expenseSummaryResult = $connectDB->query("SELECT COUNT(ID) AS item_count, COALESCE(SUM(Amount), 0) AS total_amount, MIN(ExpenseDate) AS expense_date FROM expenses WHERE ExpenseNo = '$expenseNo'");
 	if ($expenseSummaryResult) {
 		$expenseSummary = $expenseSummaryResult->fetch_assoc();
 		$expenseItemCount = (int) ($expenseSummary['item_count'] ?? 0);
 		$expenseTotal = (float) ($expenseSummary['total_amount'] ?? 0);
-		$linkedDeliveryNo = (int) ($expenseSummary['delivery_no'] ?? 0);
-		$summaryExpenseDate = $expenseSummary['expense_date'] ?? $latestExpenseDate;
+		$summaryExpenseDate = $expenseSummary['expense_date'] ?? $summaryExpenseDate;
 	}
-	$linkedDeliveryQuery = $connectDB->query("SELECT DeliveryNo FROM expenses WHERE ExpenseNo = '$expenseNo' AND DeliveryNo > 0 LIMIT 1");
-	if ($linkedDeliveryQuery && $linkedDeliveryQuery->num_rows > 0) {
-		$linkedDeliveryRow = $linkedDeliveryQuery->fetch_assoc();
-		$linkedDeliveryNo = (int) ($linkedDeliveryRow['DeliveryNo'] ?? 0);
-		if ($linkedDeliveryNo > 0) {
-			$deliveryTotalResult = $connectDB->query("SELECT COALESCE(SUM(TotalSalePrice), 0) AS total_sale_price FROM sales WHERE DeliveryNo = '$linkedDeliveryNo'");
-			if ($deliveryTotalResult) {
-				$linkedDeliveryTotalRow = $deliveryTotalResult->fetch_assoc();
-				$linkedDeliveryTotal = (float) ($linkedDeliveryTotalRow['total_sale_price'] ?? 0);
-			}
-		}
-	}
+	$latestExpenseDate = $summaryExpenseDate;
 ?>
 
-<div class="container-fluid" style="padding-bottom: 80px;">
-	<h2>Expense No. <?php echo $expenseNo; ?></h2>
-
-	<div class="dashboard-overview expense-summary-cards margin-top">
-		<div class="summary-card">
-			<p class="metric-label">Date</p>
-			<div class="summary-value"><?php echo date('M d, Y', strtotime($summaryExpenseDate)); ?></div>
-			<p class="summary-note">Recorded date for this expense entry group.</p>
-		</div>
-		<div class="summary-card">
-			<p class="metric-label">Linked Delivery</p>
-			<div class="summary-value">
-				<?php if ($linkedDeliveryNo > 0): ?>
-					#<?php echo $linkedDeliveryNo; ?>
-				<?php else: ?>
-					None
-				<?php endif; ?>
+<div class="container-fluid has-fixed-footer">
+	<div class="dashboard-card">
+		<div class="dashboard-list-head">
+			<div>
+				<p class="section-kicker">Expense</p>
+				<h3>Expense No. <?php echo $expenseNo; ?></h3>
 			</div>
-			<p class="summary-note">
-				<?php if ($linkedDeliveryNo > 0): ?>
-					<a href="?mainmenu=view_sale&deliveryNo=<?php echo $linkedDeliveryNo; ?>&return_to=<?php echo urlencode($_SERVER['REQUEST_URI']); ?>">Open linked delivery</a>
-				<?php else: ?>
-					This expense is not linked to a sold delivery.
-				<?php endif; ?>
-			</p>
+			<div class="detail-head-meta">
+				<div class="detail-head-meta-grid detail-head-meta-grid--single">
+					<div>
+						<p class="page-kicker">Expense Date</p>
+						<h3><?php echo $summaryExpenseDate !== '' ? date('M-d-Y', strtotime($summaryExpenseDate)) : 'Not available'; ?></h3>
+					</div>
+				</div>
+			</div>
 		</div>
-		<div class="summary-card">
-			<p class="metric-label">Total Expenses</p>
-			<div class="summary-value">&#8369;<?php echo number_format($expenseTotal, 2); ?></div>
-			<p class="summary-note">Combined amount of all items in this expense record.</p>
-		</div>
-	</div>
 
-	<div class="table-card">
 		<div class="table-responsive">
 			<table class="table table-hover">
 				<thead>
@@ -132,21 +101,20 @@
 	</div>
 </div>
 
-<div class="row custom-row fixed-footer">
-	<div class="col-sm-2 footer-action">
-		<a class="btn btn-info form-control" href="<?php echo $encodedReturnTo; ?>">Back</a>
+<div class="row custom-row fixed-footer footer-layout-dual">
+	<div class="col-md-2 col-12 footer-action">
+		<a class="btn btn-info w-100" href="<?php echo $encodedReturnTo; ?>">Back</a>
 	</div>
-	<div class="col-sm-2 footer-action">
-		<button data-toggle="modal" data-target="#addExpenseTransaction" class="btn btn-info form-control">Add Transaction</button>
+	<div class="col-md-2 col-12 footer-action">
+		<button data-toggle="modal" data-target="#addExpenseTransaction" class="btn btn-info w-100">Add Transaction</button>
 	</div>
-	<div class="col-sm-2 footer-metric">
-		<p><strong>Items:</strong><br><span class="totalprice"><?php echo $expenseItemCount; ?></span></p>
+	<div class="col-md-2 col-6 footer-metric">
+		<p class="metric-label">Items</p>
+		<div class="totalprice"><?php echo $expenseItemCount; ?></div>
 	</div>
-	<div class="col-sm-3 footer-metric">
-		<p><strong>Total Expenses:</strong><br><span class="totalprice">&#8369;<?php echo number_format($expenseTotal, 2); ?></span></p>
-	</div>
-	<div class="col-sm-3 footer-metric">
-		<p><strong>Linked Delivery:</strong><br><span class="totalprice"><?php echo $linkedDeliveryNo > 0 ? '#' . $linkedDeliveryNo : 'None'; ?></span></p>
+	<div class="col-md-2 col-6 footer-metric">
+		<p class="metric-label">Total Expenses</p>
+		<div class="totalprice">&#8369;<?php echo number_format($expenseTotal, 2); ?></div>
 	</div>
 </div>
 

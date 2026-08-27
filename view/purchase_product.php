@@ -146,7 +146,7 @@ $purchaseStatus = isset($_GET['purchase_status']) ? trim((string) $_GET['purchas
 		</div>
 	</div>
 
-	<div class="row custom-row fixed-footer">
+	<div class="row custom-row fixed-footer footer-layout-dual">
 		<div class="col-md-2 col-12 footer-action">
 			<button type="button" class="btn btn-info w-100" id="addFieldButton">+ Add</button>
 		</div>
@@ -161,7 +161,7 @@ $purchaseStatus = isset($_GET['purchase_status']) ? trim((string) $_GET['purchas
 			<p class="metric-label">Item Count</p>
 			<div class="totalprice"><span id="purchaseItemCount">1</span></div>
 		</div>
-		<div class="col-md-5 col-12 footer-metric">
+		<div class="col-md-2 col-6 footer-metric">
 			<p class="metric-label">Grand Total</p>
 			<div class="totalprice">&#8369;<span id="grandTotal">0.00</span></div>
 		</div>

@@ -5,7 +5,7 @@
 	$expectedDatabaseName = 'unocgtricedb';
 ?>
 
-<div class="container-fluid" style="padding-bottom: 80px;">
+<div class="container-fluid has-fixed-footer">
 	<div class="dashboard-card">
 		<div class="section-head">
 			<div>

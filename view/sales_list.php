@@ -21,7 +21,7 @@
 
 	<form method="GET" class="list-toolbar">
 		<input type="hidden" name="mainmenu" value="sales_list" />
-		<input type="text" class="searchbox" name="searchDelivery" placeholder="Search Sale No / Customer / Product / Notes" value="<?php echo htmlspecialchars($searchDelivery); ?>" />
+		<input type="text" class="searchbox" name="searchDelivery" placeholder="Search Sales Invoice / Customer / Product / Notes" value="<?php echo htmlspecialchars($searchDelivery); ?>" />
 		<button type="submit" class="btn btn-primary">Search</button>
 	</form>
 
@@ -31,7 +31,7 @@
 				<thead>
 					<tr>
 						<th>Date</th>
-						<th>Sale No</th>
+						<th>Sales Invoice</th>
 						<th>Customer</th>
 						<th>Summary</th>
 						<th>Note</th>
@@ -86,7 +86,7 @@
 										<a
 											class="icon-action-btn icon-action-btn-delete js-history-delete"
 											href="?mainmenu=sales_list&delete_product=1&deliveryNo=<?php echo $sale['DeliveryNo']; ?>&return_to=<?php echo urlencode($_SERVER['REQUEST_URI']); ?>"
-											data-record-label="Sale No. <?php echo $sale['DeliveryNo']; ?>"
+											data-record-label="Sales Invoice <?php echo $sale['DeliveryNo']; ?>"
 											aria-label="Delete sale <?php echo $sale['DeliveryNo']; ?>"
 											title="Delete"
 										>

@@ -20,7 +20,7 @@
 	$expenseCount = 0;
 ?>
 
-<div class="container-fluid" style="padding-bottom: 80px;">
+<div class="container-fluid has-fixed-footer">
 	<h2>Expenses: <?php echo htmlspecialchars($expenseCategory); ?></h2>
 	<p><strong>Date Range:</strong> <?php echo date('M d, Y', strtotime($fromDate)); ?> to <?php echo date('M d, Y', strtotime($toDate)); ?></p>
 
@@ -56,14 +56,16 @@
 	</div>
 </div>
 
-<div class="row custom-row fixed-footer">
-	<div class="col-sm-2 footer-action">
-		<a class="btn btn-info form-control" href="<?php echo htmlspecialchars($returnTo, ENT_QUOTES); ?>">Back</a>
+<div class="row custom-row fixed-footer footer-layout-dual">
+	<div class="col-md-2 col-12 footer-action">
+		<a class="btn btn-info w-100" href="<?php echo htmlspecialchars($returnTo, ENT_QUOTES); ?>">Back</a>
 	</div>
-	<div class="col-sm-2 footer-metric">
-		<p><strong>Count:</strong><br><span class="totalprice"><?php echo $expenseCount; ?></span></p>
+	<div class="col-md-2 col-6 footer-metric">
+		<p class="metric-label">Count</p>
+		<div class="totalprice"><?php echo $expenseCount; ?></div>
 	</div>
-	<div class="col-sm-3 footer-metric">
-		<p><strong>Total Expenses:</strong><br><span class="totalprice">&#8369;<?php echo number_format($expenseTotal, 2); ?></span></p>
+	<div class="col-md-2 col-6 footer-metric">
+		<p class="metric-label">Total Expenses</p>
+		<div class="totalprice">&#8369;<?php echo number_format($expenseTotal, 2); ?></div>
 	</div>
 </div>
