@@ -21,14 +21,24 @@
 	<?php endif; ?>
 	<?php
 	if (in_array($mainMenu, ['purchase_invoice', 'sale_invoice', 'print_sale_receipt', 'print_purchase_invoice'], true)) {
-		echo '<link href="' . $server . 'css/receipt.css" type="text/css" rel="stylesheet" />';
+		echo '<link href="' . $server . 'css/receipt.css?v=' . filemtime(__DIR__ . '/../css/receipt.css') . '" type="text/css" rel="stylesheet" />';
 	}
-	if ($mainMenu === 'print_purchase_invoice') {
-		echo '<link href="' . $server . 'css/purchase-invoice-print.css" type="text/css" rel="stylesheet" />';
+	if (in_array($mainMenu, ['print_purchase_invoice'], true)) {
+		echo '<link href="' . $server . 'css/purchase-invoice-print.css?v=' . filemtime(__DIR__ . '/../css/purchase-invoice-print.css') . '" type="text/css" rel="stylesheet" />';
 	}
 	?>
 	<link href="<?php echo $server; ?>css/font.css?v=<?php echo filemtime(__DIR__ . '/../css/font.css'); ?>" type="text/css" rel="stylesheet" />
 	<script src="<?php echo $server; ?>css/jquery.min.js"></script>
 	<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
 </head>
-<body<?php echo in_array($mainMenu, ['sale_invoice', 'print_sale_receipt', 'print_purchase_invoice'], true) ? ' class="body-receipt"' : ''; ?>>
+<body<?php
+	$bodyClasses = [];
+	if (in_array($mainMenu, ['sale_invoice', 'print_sale_receipt'], true)) {
+		$bodyClasses[] = 'body-receipt';
+	}
+	if ($mainMenu === 'print_purchase_invoice') {
+		$bodyClasses[] = 'body-receipt';
+		$bodyClasses[] = 'body-purchase-invoice-print';
+	}
+	echo $bodyClasses !== [] ? ' class="' . implode(' ', $bodyClasses) . '"' : '';
+?>>

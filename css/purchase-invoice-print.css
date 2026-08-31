@@ -1,62 +1,235 @@
 @page {
-	size: auto;
+	size: letter portrait;
 	margin: 12mm;
 }
 
 @media print {
-	html:has(.purchase-invoice-printable),
-	body:has(.purchase-invoice-printable) {
+	html,
+	body {
 		width: auto !important;
+		height: auto !important;
 		margin: 0 !important;
 		padding: 0 !important;
 		background: #fff !important;
+		-webkit-print-color-adjust: exact !important;
+		print-color-adjust: exact !important;
 	}
 
-	body:has(.purchase-invoice-printable) * {
-		visibility: hidden !important;
-	}
-
-	.purchase-invoice-printable,
-	.purchase-invoice-printable * {
-		visibility: visible !important;
-	}
-
-	.purchase-invoice-printable {
-		position: absolute;
-		left: 0;
-		top: 0;
-		width: 100% !important;
-		max-width: none !important;
-		margin: 0 !important;
-		padding: 0 !important;
-		display: block !important;
-	}
-
-	.purchase-invoice-printable .receipt-top-card,
-	.purchase-invoice-printable .receipt-page-actions,
-	.purchase-invoice-printable .receipt-floating-actions,
-	.purchase-invoice-printable .noPrint {
+	body.body-purchase-invoice-print .app-sidebar,
+	body.body-purchase-invoice-print .offcanvas,
+	body.body-purchase-invoice-print .mobile-topbar,
+	body.body-purchase-invoice-print .page-hero,
+	body.body-purchase-invoice-print .noPrint,
+	body.body-purchase-invoice-print .receipt-top-card {
 		display: none !important;
 	}
 
-	.purchase-invoice-printable .receipt-screen-card,
-	.purchase-invoice-printable .receipt-preview-shell,
-	.purchase-invoice-printable .purchase-invoice-preview-shell {
+	body.body-purchase-invoice-print .app-shell,
+	body.body-purchase-invoice-print .app-main,
+	body.body-purchase-invoice-print .page-body {
+		display: block !important;
+		position: static !important;
+		width: auto !important;
+		min-height: 0 !important;
+		margin: 0 !important;
+		padding: 0 !important;
+		overflow: visible !important;
+		background: #fff !important;
+		border: 0 !important;
+		box-shadow: none !important;
+		backdrop-filter: none !important;
+	}
+
+	body.body-purchase-invoice-print .purchase-invoice-printable {
+		max-width: none !important;
+		margin: 0 !important;
+		padding: 0 !important;
+	}
+
+	body.body-purchase-invoice-print .receipt-screen-card {
+		padding: 0 !important;
 		background: #fff !important;
 		border: 0 !important;
 		box-shadow: none !important;
 		border-radius: 0 !important;
-		padding: 0 !important;
-		max-width: none !important;
-		width: 100% !important;
 	}
 
-	.purchase-invoice-printable .delivery-invoice {
-		box-shadow: none !important;
-		border-radius: 0 !important;
-		border: 0 !important;
-		max-width: none !important;
-		padding: 0 !important;
+	body.body-purchase-invoice-print .receipt-preview-shell,
+	body.body-purchase-invoice-print .purchase-invoice-preview-shell {
+		display: flex !important;
+		justify-content: center !important;
 		width: 100% !important;
+		max-width: none !important;
+		margin: 0 !important;
+		padding: 28px 16px !important;
+		background: rgba(248, 250, 252, 0.78) !important;
+		border: 1px solid rgba(148, 163, 184, 0.2) !important;
+		border-radius: 24px !important;
+		box-shadow: none !important;
+		-webkit-print-color-adjust: exact !important;
+		print-color-adjust: exact !important;
+	}
+
+	body.body-purchase-invoice-print .delivery-invoice {
+		width: 100% !important;
+		max-width: none !important;
+		margin: 0 !important;
+		padding: 30px 34px 36px !important;
+		background: #fff !important;
+		color: #0f172a !important;
+		border: 1px solid rgba(148, 163, 184, 0.24) !important;
+		border-radius: 24px !important;
+		box-shadow: none !important;
+		-webkit-print-color-adjust: exact !important;
+		print-color-adjust: exact !important;
+	}
+
+	body.body-purchase-invoice-print .delivery-invoice-topbar {
+		display: block !important;
+		height: 8px !important;
+		width: 180px !important;
+		margin-bottom: 28px !important;
+		border-radius: 999px !important;
+		background: linear-gradient(90deg, #f59e0b 0%, #facc15 100%) !important;
+		-webkit-print-color-adjust: exact !important;
+		print-color-adjust: exact !important;
+	}
+
+	body.body-purchase-invoice-print .delivery-invoice-header {
+		display: flex !important;
+		flex-direction: row !important;
+		flex-wrap: nowrap !important;
+		justify-content: space-between !important;
+		align-items: center !important;
+		gap: 24px !important;
+		margin-bottom: 28px !important;
+	}
+
+	body.body-purchase-invoice-print .delivery-invoice-brand,
+	body.body-purchase-invoice-print .delivery-invoice-meta {
+		flex: 1 1 0 !important;
+	}
+
+	body.body-purchase-invoice-print .delivery-invoice-meta {
+		max-width: 440px !important;
+		margin-left: auto !important;
+	}
+
+	body.body-purchase-invoice-print .delivery-invoice-eyebrow {
+		color: #0f766e !important;
+	}
+
+	body.body-purchase-invoice-print .delivery-invoice-brand h4,
+	body.body-purchase-invoice-print .delivery-invoice-meta-grid strong,
+	body.body-purchase-invoice-print .delivery-invoice-totals strong,
+	body.body-purchase-invoice-print .delivery-invoice-footer-title,
+	body.body-purchase-invoice-print .delivery-invoice-signoff {
+		color: #0f172a !important;
+	}
+
+	body.body-purchase-invoice-print .delivery-invoice-brand p,
+	body.body-purchase-invoice-print .delivery-invoice-notes p,
+	body.body-purchase-invoice-print .delivery-invoice-meta-grid span,
+	body.body-purchase-invoice-print .delivery-invoice-totals span {
+		color: #64748b !important;
+	}
+
+	body.body-purchase-invoice-print .delivery-invoice-meta-grid {
+		display: grid !important;
+		grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+		gap: 14px !important;
+		padding: 18px !important;
+		border-radius: 20px !important;
+		background: linear-gradient(135deg, rgba(15, 23, 42, 0.04), rgba(15, 118, 110, 0.06)) !important;
+		-webkit-print-color-adjust: exact !important;
+		print-color-adjust: exact !important;
+	}
+
+	body.body-purchase-invoice-print .delivery-invoice-table-wrap {
+		margin-bottom: 26px !important;
+		border: 1px solid rgba(148, 163, 184, 0.22) !important;
+		border-radius: 20px !important;
+		overflow: hidden !important;
+	}
+
+	body.body-purchase-invoice-print .delivery-invoice-table {
+		width: 100% !important;
+		border-collapse: collapse !important;
+	}
+
+	body.body-purchase-invoice-print .delivery-invoice-table thead th {
+		padding: 0.9rem 1rem !important;
+		background: #1e1b4b !important;
+		color: #fff !important;
+		font-size: 0.78rem !important;
+		font-weight: 800 !important;
+		letter-spacing: 0.08em !important;
+		text-transform: uppercase !important;
+		-webkit-print-color-adjust: exact !important;
+		print-color-adjust: exact !important;
+	}
+
+	body.body-purchase-invoice-print .delivery-invoice-table td {
+		padding: 0.95rem 1rem !important;
+		color: #0f172a !important;
+		border-bottom: 1px solid rgba(148, 163, 184, 0.18) !important;
+		vertical-align: top !important;
+	}
+
+	body.body-purchase-invoice-print .delivery-invoice-table tbody tr:nth-child(even) {
+		background: rgba(248, 250, 252, 0.75) !important;
+		-webkit-print-color-adjust: exact !important;
+		print-color-adjust: exact !important;
+	}
+
+	body.body-purchase-invoice-print .delivery-invoice-footer {
+		display: grid !important;
+		grid-template-columns: minmax(0, 1.3fr) minmax(280px, 0.9fr) !important;
+		gap: 28px !important;
+		align-items: end !important;
+	}
+
+	body.body-purchase-invoice-print .delivery-invoice-signoff {
+		margin-top: 1.5rem !important;
+		padding-top: 0.8rem !important;
+		border-top: 2px solid rgba(15, 23, 42, 0.14) !important;
+		max-width: 220px !important;
+	}
+
+	body.body-purchase-invoice-print .delivery-invoice-totals {
+		border: 1px solid rgba(148, 163, 184, 0.22) !important;
+		border-radius: 20px !important;
+		overflow: hidden !important;
+	}
+
+	body.body-purchase-invoice-print .delivery-invoice-totals > div {
+		display: flex !important;
+		justify-content: space-between !important;
+		align-items: center !important;
+		padding: 1rem 1.15rem !important;
+		background: #fff !important;
+		border-bottom: 1px solid rgba(148, 163, 184, 0.18) !important;
+	}
+
+	body.body-purchase-invoice-print .delivery-invoice-totals > div:last-child {
+		border-bottom: 0 !important;
+	}
+
+	body.body-purchase-invoice-print .delivery-invoice-grand-total {
+		background: linear-gradient(135deg, rgba(245, 158, 11, 0.16), rgba(250, 204, 21, 0.44)) !important;
+		-webkit-print-color-adjust: exact !important;
+		print-color-adjust: exact !important;
+	}
+
+	body.body-purchase-invoice-print .delivery-invoice-grand-total strong {
+		font-size: 1.25rem !important;
+		color: #0f172a !important;
+	}
+
+	body.body-purchase-invoice-print .delivery-invoice-header,
+	body.body-purchase-invoice-print .delivery-invoice-table-wrap,
+	body.body-purchase-invoice-print .delivery-invoice-footer {
+		break-inside: avoid;
+		page-break-inside: avoid;
 	}
 }

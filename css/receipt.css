@@ -364,15 +364,14 @@ body {
 }
 
 @media print {
-	html,
-	body {
+	body:has(.receipt-printable) {
 		width: 48mm;
 		margin: 0 !important;
 		padding: 0 !important;
 		background: #fff !important;
 	}
 
-	body * {
+	body:has(.receipt-printable) * {
 		visibility: hidden !important;
 	}
 
@@ -390,8 +389,8 @@ body {
 		display: block;
 	}
 
-	.receipt-screen-card,
-	.receipt-preview-shell {
+	body:has(.receipt-printable) .receipt-screen-card,
+	body:has(.receipt-printable) .receipt-preview-shell {
 		background: #fff !important;
 		border: 0 !important;
 		box-shadow: none !important;
@@ -399,14 +398,14 @@ body {
 		padding: 0 !important;
 	}
 
-	.receipt-top-card,
-	.receipt-page-actions,
-	.receipt-floating-actions,
-	.noPrint {
+	body:has(.receipt-printable) .receipt-top-card,
+	body:has(.receipt-printable) .receipt-page-actions,
+	body:has(.receipt-printable) .receipt-floating-actions,
+	body:has(.receipt-printable) .noPrint {
 		display: none !important;
 	}
 
-	.receipt {
+	body:has(.receipt-printable) .receipt {
 		width: 44mm;
 		max-width: 44mm;
 		border: 0;
@@ -417,29 +416,29 @@ body {
 		font-family: Arial, Helvetica, sans-serif;
 	}
 
-	.header h1 {
+	body:has(.receipt-printable) .header h1 {
 		font-size: 10pt;
 		margin-bottom: 3px;
 	}
 
-	.header p,
-	.receipt-meta,
-	.product-table,
-	.total p,
-	.footer {
+	body:has(.receipt-printable) .header p,
+	body:has(.receipt-printable) .receipt-meta,
+	body:has(.receipt-printable) .product-table,
+	body:has(.receipt-printable) .total p,
+	body:has(.receipt-printable) .footer {
 		font-size: 8pt;
 	}
 
-	.product-table th {
+	body:has(.receipt-printable) .product-table th {
 		font-size: 7pt;
 	}
 
-	.total p .total-value {
+	body:has(.receipt-printable) .total p .total-value {
 		font-size: 9pt;
 		font-weight: 800;
 	}
 
-	.line {
+	body:has(.receipt-printable) .line {
 		margin: 9px 0;
 		border-top: 1px dashed #000;
 	}
