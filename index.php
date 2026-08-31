@@ -47,6 +47,10 @@
         include "process/delete_inventory_audit.php";
         exit;
     }
+    if ($mainMenu === "save_repack" && $_SERVER['REQUEST_METHOD'] === 'POST') {
+        include "process/save_repack.php";
+        exit;
+    }
     if ($mainMenu === "restore_database" && $_SERVER['REQUEST_METHOD'] === 'POST') {
         include "process/restore_database.php";
         exit;
@@ -80,7 +84,7 @@
     $purchaseMenus = ['purchase_product', 'purchase_list', 'view_invoice', 'purchase_invoice', 'view_purchase_product', 'print_purchase_invoice'];
     $expenseMenus = ['expenses', 'expenses_list', 'view_expense'];
     $salesMenus = ['sell_product_others', 'sell_product_lpg', 'sales_list', 'view_sale', 'view_sale_product', 'print_sale_receipt'];
-    $inventoryMenus = ['inventory', 'lpg_inventory', 'inventory_audit'];
+    $inventoryMenus = ['inventory', 'lpg_inventory', 'inventory_audit', 'repack_product'];
     $customerMenus = ['customers'];
     $reportMenus = [];
     $settingsMenus = ['company_profile', 'app_appearance', 'product_list', 'download_database', 'expense_category_list', 'view_expense_category'];
@@ -108,6 +112,7 @@
         'inventory' => 'Inventory Monitor',
         'lpg_inventory' => 'LPG Inventory',
         'inventory_audit' => 'Inventory Audit',
+        'repack_product' => 'Repack Product',
         'company_profile' => 'Company Profile',
         'app_appearance' => 'App Colors',
         'download_database' => 'Database Backup',
@@ -186,6 +191,7 @@
                             <a class="sub-link <?php echo ($activeMenu == 'inventory') ? 'active' : ''; ?>" href="?mainmenu=inventory">All Products</a>
                             <a class="sub-link <?php echo ($activeMenu == 'lpg_inventory') ? 'active' : ''; ?>" href="?mainmenu=lpg_inventory">LPG Monitor</a>
                             <a class="sub-link <?php echo ($activeMenu == 'inventory_audit') ? 'active' : ''; ?>" href="?mainmenu=inventory_audit">Inventory Audit</a>
+                            <a class="sub-link <?php echo ($activeMenu == 'repack_product') ? 'active' : ''; ?>" href="?mainmenu=repack_product">Repack / Convert</a>
                         </div>
                     </div>
                 </div>
@@ -251,8 +257,8 @@
                     break;
 
                     case "product_list":
-                        if(isset($_GET['edit_product'])) include "process/edit_product.php";
-                        if(isset($_GET['add_new_product']) || isset($_GET['toggle_product_status'])) include "process/add_new_product.php";
+                        if(isset($_GET['edit_product']) || isset($_POST['edit_product'])) include "process/edit_product.php";
+                        if(isset($_GET['add_new_product']) || isset($_POST['add_new_product']) || isset($_GET['toggle_product_status'])) include "process/add_new_product.php";
                         require "view/product_list.php";
                     break;
 
@@ -344,6 +350,10 @@
                         require "view/inventory_audit.php";
                     break;
 
+                    case "repack_product":
+                        require "view/repack_product.php";
+                    break;
+
                     case "customers":
                         require "view/customers.php";
                     break;
@@ -390,6 +400,7 @@
             </a>
             <a class="nav-link <?php echo ($activeMenu == 'lpg_inventory') ? 'active' : ''; ?>" href="?mainmenu=lpg_inventory">LPG Monitor</a>
             <a class="nav-link <?php echo ($activeMenu == 'inventory_audit') ? 'active' : ''; ?>" href="?mainmenu=inventory_audit">Inventory Audit</a>
+            <a class="nav-link <?php echo ($activeMenu == 'repack_product') ? 'active' : ''; ?>" href="?mainmenu=repack_product">Repack / Convert</a>
             <a class="nav-link <?php echo ($activeMenu == 'customers') ? 'active' : ''; ?>" href="?mainmenu=customers">
                 Customers<?php if ($customerDueAlertCount > 0): ?> <span class="nav-alert-badge"><?php echo (int) $customerDueAlertCount; ?></span><?php endif; ?>
             </a>

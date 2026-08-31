@@ -19,31 +19,6 @@
         }
     }
 	
-	$products = [];
-	$sql_selectProducts = "
-		SELECT
-			p.Product_ID AS id,
-			p.ProductName AS name,
-			COALESCE((
-				SELECT pu.ProductPrice
-				FROM purchases pu
-				WHERE pu.Product_ID = p.Product_ID
-				ORDER BY pu.PurchaseDate DESC, pu.ID DESC
-				LIMIT 1
-			), 0) AS price
-		FROM products p
-		WHERE p.IsActive = 1 AND COALESCE(p.IsSubProduct, 0) = 0
-		ORDER BY p.ProductName ASC
-	";
-	$allProducts = $connectDB->query($sql_selectProducts);
-
-	if ($allProducts->num_rows > 0) {
-		while ($row = $allProducts->fetch_assoc()) {
-			$products[] = $row;
-		}
-	}
-	
-	
 ?>
 <div class="container-fluid has-fixed-footer">
 	<div class="dashboard-card">
@@ -129,7 +104,7 @@
         <a class="btn btn-info w-100" href="<?php echo $encodedReturnTo; ?>">Back</a>
     </div>
 	<div class="col-md-2 col-12 footer-action">
-		<button data-toggle='modal' data-target='#addNewProduct' class='btn btn-outline-secondary w-100'>Add Item</button>
+		<a class="btn btn-outline-secondary w-100" href="?mainmenu=sell_product_others">Sell Product</a>
     </div>
 	<div class="col-md-2 col-12 footer-action">
 		<?php if ($productCount > 0): ?>
@@ -171,15 +146,6 @@
         // Update total purchase price automatically on input change inside modal
         $('#editPurchaseProductDetails').on('input', 'input[name="Quantity"], input[name="product_price"]', function () {
             var modal = $('#editPurchaseProductDetails'); // Get the modal
-            var quantity = parseFloat(modal.find('input[name="Quantity"]').val()) || 0;
-            var price = parseFloat(modal.find('input[name="product_price"]').val()) || 0;
-            
-            var totalPurchasePrice = (quantity * price).toFixed(2);
-            modal.find('input[name="total_purchase_price"]').val(totalPurchasePrice);
-        });
-		
-		$('#addNewProduct').on('input', 'input[name="Quantity"], input[name="product_price"]', function () {
-            var modal = $('#addNewProduct'); // Get the modal
             var quantity = parseFloat(modal.find('input[name="Quantity"]').val()) || 0;
             var price = parseFloat(modal.find('input[name="product_price"]').val()) || 0;
             
@@ -231,102 +197,3 @@
         </div>
     </div>
 </div>
-
-<!-- Modal Add New Product -->
-<div class="modal fade" id="addNewProduct" role="dialog">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <div class="modal-header">
-                <button type="button" class="close" data-dismiss="modal">&times;</button>
-                <h4 class="modal-title">Add Transaction</h4>
-            </div>
-			<form class="form new-form" method="GET">
-            <div class="modal-body">
-                
-                    <input type="hidden" name="mainmenu" value="view_invoice" />
-					<input type="hidden" name="searchInvoice" value="<?php echo $searchInvoice; ?>"/>
-					<input type="hidden" name="return_to" value="<?php echo $encodedReturnTo; ?>" />
-					<input type="hidden" name="invoiceNo" value="<?php echo $invoiceNo; ?>" />
-					<input type="hidden" name="purchase_date" value="<?php echo htmlspecialchars($purchaseDate ?? junkshop_normalize_datetime(''), ENT_QUOTES); ?>" />
-                    
-                    <label for="product_name">Product Name:</label>
-					<input
-                        type="text"
-                        class="form-control"
-                        name="product_name"
-                        list="product_suggestions"
-                        onblur="validateSelection(this)"
-                        required
-                    />
-                    <input type="hidden" name="product_id" value="" />
-                    <datalist id="product_suggestions">
-                        <?php foreach ($products as $product): ?>
-                            <option value="<?= htmlspecialchars($product['name']) ?>"
-                                    data-id="<?= $product['id'] ?>"
-                                    data-price="<?= $product['price'] ?>">
-                            </option>
-                        <?php endforeach; ?>
-                    </datalist>
-                    
-                    <label for="Quantity">Pcs/Kg:</label>
-                    <input type="number" step="0.01" class="form-control" name="Quantity" value="" required oninput="calculateTotal()" />
-                    
-                    <label for="product_price">Price:</label>
-                    <input type="number" step="0.01" class="form-control" name="product_price" value="" required oninput="calculateTotal()" />
-                    
-                    <label for="total_purchase_price">Total Price:</label>
-                    <input type="text" class="form-control" name="total_purchase_price" readonly />
-                    
-                
-            </div>
-            <div class="modal-footer">
-                <div class="row">
-                    <div class="col-sm-6">
-                        <input type="submit" class="btn btn-success form-control" name="add_new_product" value="Add Product">
-                    </div>
-                    <div class="col-sm-6">
-                        <button type="button" class="btn btn-danger form-control" data-dismiss="modal">Cancel</button>
-                    </div>
-                </div>
-            </div>
-			</form>
-        </div>
-    </div>
-</div>
-
-
-
-<script>
-	// Function to validate the selected product
-// Function to validate the selected product
-function validateSelection(inputElement) {
-    const datalist = document.getElementById('product_suggestions');
-    const options = Array.from(datalist.options);
-    const valid = options.some(option => option.value === inputElement.value);
-
-    if (!valid) {
-        alert('Please select a valid product from the suggestions.');
-        inputElement.value = ''; // Clear invalid input
-        const modalContent = inputElement.closest('.modal-content');
-        const productIdInput = modalContent.querySelector('input[name="product_id"]');
-        if (productIdInput) {
-            productIdInput.value = '';
-        }
-    } else {
-        const selectedOption = options.find(option => option.value === inputElement.value);
-
-        // Find the input field for price inside the same modal (related to the Product Name input)
-        const modalContent = inputElement.closest('.modal-content');
-        const priceInput = modalContent.querySelector('input[name="product_price"]');
-        const productIdInput = modalContent.querySelector('input[name="product_id"]');
-        if (priceInput) {
-            // Populate the price input field with the selected product's price
-            priceInput.value = selectedOption.getAttribute('data-price') || 0;
-        }
-        if (productIdInput) {
-            productIdInput.value = selectedOption.getAttribute('data-id') || '';
-        }
-    }
-}
-
-</script>

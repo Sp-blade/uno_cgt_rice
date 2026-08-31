@@ -98,8 +98,13 @@
 	if (!function_exists('junkshop_get_alternate_sale_unit')) {
 		function junkshop_get_alternate_sale_unit($baseUnit, $alternateSaleUnit = '') {
 			$baseUnit = junkshop_normalize_base_unit($baseUnit);
+			$alternateSaleUnit = trim((string) $alternateSaleUnit);
+			if ($alternateSaleUnit === '') {
+				return null;
+			}
+
 			$alternateUnit = junkshop_normalize_base_unit($alternateSaleUnit);
-			if ($alternateUnit === '' || $alternateUnit === $baseUnit) {
+			if ($alternateUnit === $baseUnit) {
 				return null;
 			}
 
@@ -262,6 +267,500 @@
 			}
 
 			return $status . implode("\n", $parts);
+		}
+	}
+
+	if (!function_exists('junkshop_product_repack_content_kg')) {
+		function junkshop_product_repack_content_kg($product) {
+			if (is_array($product)) {
+				$baseUnit = junkshop_normalize_base_unit($product['ProductBaseUnit'] ?? 'pc');
+				$canConvert = (int) ($product['CanConvertToKg'] ?? 0);
+				$equivQty = (float) ($product['KgEquivalentQty'] ?? 0);
+				$alternateSaleUnit = (string) ($product['AlternateSaleUnit'] ?? '');
+				$productName = trim((string) ($product['ProductName'] ?? ''));
+			} else {
+				return 0.0;
+			}
+
+			if ($baseUnit === 'kg') {
+				return 1.0;
+			}
+
+			if (junkshop_can_convert_units($baseUnit, $canConvert, $equivQty, $alternateSaleUnit)) {
+				$alternateUnit = junkshop_get_alternate_sale_unit($baseUnit, $alternateSaleUnit);
+				if ($alternateUnit === 'kg') {
+					$factor = junkshop_product_repack_unit_factor($baseUnit, $canConvert, $equivQty, $alternateSaleUnit);
+					if ($factor > 0) {
+						return round($factor, 6);
+					}
+				}
+			}
+
+			if ($productName !== '' && preg_match('/(\d+(?:\.\d+)?)\s*kg/i', $productName, $matches)) {
+				return round((float) $matches[1], 6);
+			}
+
+			return 0.0;
+		}
+	}
+
+	if (!function_exists('junkshop_product_repack_content_kg_label')) {
+		function junkshop_product_repack_content_kg_label($product) {
+			$contentKg = junkshop_product_repack_content_kg($product);
+			if ($contentKg <= 0) {
+				return '';
+			}
+
+			$baseUnit = junkshop_normalize_base_unit(is_array($product) ? ($product['ProductBaseUnit'] ?? 'pc') : 'pc');
+			$qtyLabel = rtrim(rtrim(number_format($contentKg, 2, '.', ''), '0'), '.');
+
+			return $qtyLabel . ' kg per ' . junkshop_unit_label($baseUnit);
+		}
+	}
+
+	if (!function_exists('junkshop_product_repack_unit_factor')) {
+		function junkshop_product_repack_unit_factor($baseUnit, $canConvert, $equivQty, $alternateSaleUnit = '') {
+			$baseUnit = junkshop_normalize_base_unit($baseUnit);
+			$equivQty = (float) $equivQty;
+
+			if ($baseUnit === 'kg') {
+				return 1.0;
+			}
+
+			if (junkshop_can_convert_units($baseUnit, $canConvert, $equivQty, $alternateSaleUnit)) {
+				$alternateUnit = junkshop_get_alternate_sale_unit($baseUnit, $alternateSaleUnit);
+				if ($alternateUnit === null) {
+					return 1.0;
+				}
+				if (junkshop_uses_legacy_pc_kg_conversion($baseUnit, $alternateUnit)) {
+					return $equivQty > 0 ? round(1 / $equivQty, 6) : 1.0;
+				}
+				return round($equivQty, 6);
+			}
+
+			return 1.0;
+		}
+	}
+
+	if (!function_exists('junkshop_product_repack_factor_label')) {
+		function junkshop_product_repack_factor_label($baseUnit, $canConvert, $equivQty, $alternateSaleUnit = '') {
+			$baseUnit = junkshop_normalize_base_unit($baseUnit);
+			$factor = junkshop_product_repack_unit_factor($baseUnit, $canConvert, $equivQty, $alternateSaleUnit);
+
+			if ($baseUnit === 'kg') {
+				return '1 kg per ' . junkshop_unit_label($baseUnit);
+			}
+
+			if (junkshop_can_convert_units($baseUnit, $canConvert, $equivQty, $alternateSaleUnit)) {
+				$alternateUnit = junkshop_get_alternate_sale_unit($baseUnit, $alternateSaleUnit);
+				if ($alternateUnit !== null) {
+					if (junkshop_uses_legacy_pc_kg_conversion($baseUnit, $alternateUnit)) {
+						return number_format($factor, 4) . ' ' . junkshop_unit_label($alternateUnit) . ' per ' . junkshop_unit_label($baseUnit);
+					}
+					return number_format($factor, 2) . ' ' . junkshop_unit_label($alternateUnit) . ' per ' . junkshop_unit_label($baseUnit);
+				}
+			}
+
+			return '1 ' . junkshop_unit_label($baseUnit) . ' per ' . junkshop_unit_label($baseUnit);
+		}
+	}
+
+	if (!function_exists('junkshop_product_repack_units')) {
+		function junkshop_product_repack_units(array $product) {
+			$baseUnit = junkshop_normalize_base_unit($product['ProductBaseUnit'] ?? 'pc');
+			$units = [$baseUnit];
+			$alternateUnit = junkshop_get_alternate_sale_unit(
+				$baseUnit,
+				(string) ($product['AlternateSaleUnit'] ?? '')
+			);
+			if (
+				(int) ($product['CanConvertToKg'] ?? 0) === 1
+				&& (float) ($product['KgEquivalentQty'] ?? 0) > 0
+				&& $alternateUnit !== null
+			) {
+				$units[] = $alternateUnit;
+			}
+
+			return array_values(array_unique($units));
+		}
+	}
+
+	if (!function_exists('junkshop_product_repack_common_unit')) {
+		function junkshop_product_repack_common_unit(array $sourceProduct, array $targetProduct) {
+			$sourceUnits = junkshop_product_repack_units($sourceProduct);
+			$targetUnits = junkshop_product_repack_units($targetProduct);
+			$commonUnits = array_values(array_intersect($sourceUnits, $targetUnits));
+			if (empty($commonUnits)) {
+				return null;
+			}
+
+			$sourceAlternate = $sourceUnits[1] ?? null;
+			$targetAlternate = $targetUnits[1] ?? null;
+			if ($sourceAlternate !== null && in_array($sourceAlternate, $commonUnits, true)) {
+				return $sourceAlternate;
+			}
+			if ($targetAlternate !== null && in_array($targetAlternate, $commonUnits, true)) {
+				return $targetAlternate;
+			}
+
+			return $commonUnits[0];
+		}
+	}
+
+	if (!function_exists('junkshop_product_repack_factor_for_unit')) {
+		function junkshop_product_repack_factor_for_unit(array $product, $unit) {
+			$unit = junkshop_normalize_base_unit($unit);
+			$baseUnit = junkshop_normalize_base_unit($product['ProductBaseUnit'] ?? 'pc');
+			if ($unit === $baseUnit) {
+				return 1.0;
+			}
+
+			$alternateUnit = junkshop_get_alternate_sale_unit(
+				$baseUnit,
+				(string) ($product['AlternateSaleUnit'] ?? '')
+			);
+			$equivQty = (float) ($product['KgEquivalentQty'] ?? 0);
+			if (
+				$unit !== $alternateUnit
+				|| (int) ($product['CanConvertToKg'] ?? 0) !== 1
+				|| $equivQty <= 0
+			) {
+				return 0.0;
+			}
+
+			if (junkshop_uses_legacy_pc_kg_conversion($baseUnit, $alternateUnit)) {
+				return round(1 / $equivQty, 6);
+			}
+
+			return round($equivQty, 6);
+		}
+	}
+
+	if (!function_exists('junkshop_products_can_repack')) {
+		function junkshop_products_can_repack(array $sourceProduct, array $targetProduct) {
+			$sourceId = (int) ($sourceProduct['Product_ID'] ?? 0);
+			$targetId = (int) ($targetProduct['Product_ID'] ?? 0);
+			if ($sourceId <= 0 || $targetId <= 0 || $sourceId === $targetId) {
+				return false;
+			}
+
+			foreach ([$sourceProduct, $targetProduct] as $product) {
+				$type = strtoupper(trim((string) ($product['ProductType'] ?? '')));
+				if ($type === 'LPG TANK' || (int) ($product['IsSubProduct'] ?? 0) === 1) {
+					return false;
+				}
+			}
+
+			$commonUnit = junkshop_product_repack_common_unit($sourceProduct, $targetProduct);
+			return $commonUnit !== null
+				&& junkshop_product_repack_factor_for_unit($sourceProduct, $commonUnit) > 0
+				&& junkshop_product_repack_factor_for_unit($targetProduct, $commonUnit) > 0;
+		}
+	}
+
+	if (!function_exists('junkshop_calculate_repack_target_qty')) {
+		function junkshop_calculate_repack_target_qty($sourceQty, $sourceFactor, $targetFactor) {
+			$sourceQty = round((float) $sourceQty, 2);
+			$sourceFactor = (float) $sourceFactor;
+			$targetFactor = (float) $targetFactor;
+			if ($sourceQty <= 0 || $sourceFactor <= 0 || $targetFactor <= 0) {
+				return 0.0;
+			}
+
+			return round($sourceQty * ($sourceFactor / $targetFactor), 2);
+		}
+	}
+
+	if (!function_exists('junkshop_calculate_repack_target_qty_for_products')) {
+		function junkshop_calculate_repack_target_qty_for_products($sourceQty, array $sourceProduct, array $targetProduct) {
+			$sourceQty = round((float) $sourceQty, 2);
+			if ($sourceQty <= 0) {
+				return 0.0;
+			}
+
+			$commonUnit = junkshop_product_repack_common_unit($sourceProduct, $targetProduct);
+			if ($commonUnit === null) {
+				return 0.0;
+			}
+
+			$sourceFactor = junkshop_product_repack_factor_for_unit($sourceProduct, $commonUnit);
+			$targetFactor = junkshop_product_repack_factor_for_unit($targetProduct, $commonUnit);
+
+			return junkshop_calculate_repack_target_qty($sourceQty, $sourceFactor, $targetFactor);
+		}
+	}
+
+	if (!function_exists('junkshop_get_product_whole_stock')) {
+		function junkshop_get_product_whole_stock($connectDB, $productId) {
+			$productId = (int) $productId;
+			if ($productId <= 0) {
+				return 0.0;
+			}
+
+			$result = $connectDB->query("
+				SELECT COALESCE(SUM(QuantityRemaining), 0) AS whole_stock
+				FROM inventory_batches
+				WHERE Product_ID = '$productId'
+			");
+			if (!$result || !($row = $result->fetch_assoc())) {
+				return 0.0;
+			}
+
+			return round((float) ($row['whole_stock'] ?? 0), 2);
+		}
+	}
+
+	if (!function_exists('junkshop_load_repack_product')) {
+		function junkshop_load_repack_product($connectDB, $productId) {
+			$productId = (int) $productId;
+			if ($productId <= 0) {
+				return null;
+			}
+
+			$result = $connectDB->query("
+				SELECT
+					Product_ID,
+					ProductName,
+					COALESCE(ProductType, '') AS ProductType,
+					COALESCE(ProductBaseUnit, 'pc') AS ProductBaseUnit,
+					COALESCE(CanConvertToKg, 0) AS CanConvertToKg,
+					COALESCE(KgEquivalentQty, 0) AS KgEquivalentQty,
+					COALESCE(AlternateSaleUnit, '') AS AlternateSaleUnit,
+					COALESCE(IsSubProduct, 0) AS IsSubProduct,
+					IsActive
+				FROM products
+				WHERE Product_ID = '$productId'
+				LIMIT 1
+			");
+
+			return ($result && ($row = $result->fetch_assoc())) ? $row : null;
+		}
+	}
+
+	if (!function_exists('junkshop_record_repack_inventory')) {
+		function junkshop_record_repack_inventory($connectDB, $productId, $productName, $repackDate, $repackId, $quantity, $unitCost) {
+			$productId = (int) $productId;
+			$quantity = round((float) $quantity, 2);
+			$unitCost = round((float) $unitCost, 2);
+			if ($productId <= 0 || $quantity <= 0) {
+				return false;
+			}
+
+			$safeProductName = mysqli_real_escape_string($connectDB, trim((string) $productName));
+			$safeRepackDate = mysqli_real_escape_string($connectDB, junkshop_normalize_datetime($repackDate));
+			$safeQuantity = mysqli_real_escape_string($connectDB, number_format($quantity, 2, '.', ''));
+			$safeUnitCost = mysqli_real_escape_string($connectDB, number_format($unitCost, 2, '.', ''));
+			$batchLabel = junkshop_resolve_inventory_batch_label($connectDB, $productId, $productName, $unitCost);
+			$sourceReference = mysqli_real_escape_string($connectDB, 'Repack#' . (int) $repackId);
+
+			if (!$connectDB->query("
+				INSERT INTO inventory_batches (Product_ID, ProductName, BatchDate, BatchLabel, QuantityIn, QuantityRemaining, UnitCost, LpgTankUnitCost, SourceType, SourceReference)
+				VALUES ('$productId', '$safeProductName', '$safeRepackDate', '$batchLabel', '$safeQuantity', '$safeQuantity', '$safeUnitCost', '0.00', 'REPACK', '$sourceReference')
+			")) {
+				return false;
+			}
+
+			$batchId = (int) $connectDB->insert_id;
+			$safeNotes = mysqli_real_escape_string($connectDB, 'Repacked stock received');
+			return (bool) $connectDB->query("
+				INSERT INTO inventory_movements (Product_ID, ProductName, Batch_ID, MovementDate, MovementType, Quantity, UnitCost, TotalCost, ReferenceType, ReferenceNo, Notes)
+				VALUES ('$productId', '$safeProductName', '$batchId', '$safeRepackDate', 'IN', '$safeQuantity', '$safeUnitCost', '" . mysqli_real_escape_string($connectDB, number_format($quantity * $unitCost, 2, '.', '')) . "', 'REPACK', '$sourceReference', '$safeNotes')
+			");
+		}
+	}
+
+	if (!function_exists('junkshop_repack_product')) {
+		function junkshop_repack_product($connectDB, $sourceProductId, $targetProductId, $sourceQty, $repackDate, $notes = '', $sourceUnit = '') {
+			$sourceProductId = (int) $sourceProductId;
+			$targetProductId = (int) $targetProductId;
+			$sourceQty = round((float) $sourceQty, 2);
+			$repackDate = junkshop_normalize_datetime($repackDate);
+			$notes = trim((string) $notes);
+
+			if ($sourceProductId <= 0 || $targetProductId <= 0 || $sourceQty <= 0) {
+				return ['success' => false, 'message' => 'Invalid repack request.'];
+			}
+
+			$sourceProduct = junkshop_load_repack_product($connectDB, $sourceProductId);
+			$targetProduct = junkshop_load_repack_product($connectDB, $targetProductId);
+			if (!$sourceProduct || !$targetProduct) {
+				return ['success' => false, 'message' => 'One or both products could not be found.'];
+			}
+			if ((int) ($sourceProduct['IsActive'] ?? 0) !== 1 || (int) ($targetProduct['IsActive'] ?? 0) !== 1) {
+				return ['success' => false, 'message' => 'Only active products can be repacked.'];
+			}
+			if (!junkshop_products_can_repack($sourceProduct, $targetProduct)) {
+				return ['success' => false, 'message' => 'These products cannot be repacked together because their base and conversion units do not match.'];
+			}
+
+			$sourceBaseUnit = junkshop_normalize_base_unit($sourceProduct['ProductBaseUnit'] ?? 'pc');
+			$sourceAlternateUnit = junkshop_get_alternate_sale_unit(
+				$sourceBaseUnit,
+				(string) ($sourceProduct['AlternateSaleUnit'] ?? '')
+			);
+			$sourceUnit = trim((string) $sourceUnit) !== ''
+				? junkshop_normalize_base_unit($sourceUnit)
+				: $sourceBaseUnit;
+			$usesAlternateUnit = $sourceAlternateUnit !== null
+				&& $sourceUnit === $sourceAlternateUnit
+				&& junkshop_can_convert_units(
+					$sourceBaseUnit,
+					(int) ($sourceProduct['CanConvertToKg'] ?? 0),
+					(float) ($sourceProduct['KgEquivalentQty'] ?? 0),
+					(string) ($sourceProduct['AlternateSaleUnit'] ?? '')
+				);
+			if ($sourceUnit !== $sourceBaseUnit && !$usesAlternateUnit) {
+				return ['success' => false, 'message' => 'The selected source unit is not configured for this product.'];
+			}
+
+			$availableWholeStock = junkshop_get_product_whole_stock($connectDB, $sourceProductId);
+			$openedStock = junkshop_get_opened_alternate_stock($connectDB, $sourceProductId);
+			$availableSourceQty = $availableWholeStock;
+			if ($usesAlternateUnit) {
+				$wholeAsAlternate = junkshop_base_qty_to_alternate(
+					$availableWholeStock,
+					$sourceBaseUnit,
+					(float) ($sourceProduct['KgEquivalentQty'] ?? 0),
+					(string) ($sourceProduct['AlternateSaleUnit'] ?? '')
+				);
+				$openedAvailableQty = junkshop_supports_opened_alternate_stock(
+					$sourceBaseUnit,
+					(int) ($sourceProduct['CanConvertToKg'] ?? 0),
+					(float) ($sourceProduct['KgEquivalentQty'] ?? 0),
+					(string) ($sourceProduct['AlternateSaleUnit'] ?? '')
+				) ? (float) $openedStock['qty'] : 0.0;
+				$availableSourceQty = round((float) ($wholeAsAlternate ?? 0) + $openedAvailableQty, 2);
+			}
+			if ($sourceQty - $availableSourceQty > 0.009) {
+				return [
+					'success' => false,
+					'message' => 'Not enough source stock available. Available: ' . number_format($availableSourceQty, 2) . ' ' . junkshop_unit_label($sourceUnit) . '.',
+				];
+			}
+
+			$commonUnit = junkshop_product_repack_common_unit($sourceProduct, $targetProduct);
+			$sourceInputFactor = junkshop_product_repack_factor_for_unit($sourceProduct, $sourceUnit);
+			$sourceBaseQty = $sourceInputFactor > 0 ? round($sourceQty / $sourceInputFactor, 6) : 0.0;
+			$sourceFactor = $sourceInputFactor > 0
+				? junkshop_product_repack_factor_for_unit($sourceProduct, $commonUnit) / $sourceInputFactor
+				: 0.0;
+			$targetFactor = junkshop_product_repack_factor_for_unit($targetProduct, $commonUnit);
+			$targetQty = $sourceBaseQty > 0
+				? junkshop_calculate_repack_target_qty_for_products($sourceBaseQty, $sourceProduct, $targetProduct)
+				: 0.0;
+			if ($targetQty <= 0) {
+				return ['success' => false, 'message' => 'The repack conversion produced zero target quantity.'];
+			}
+
+			$connectDB->begin_transaction();
+			try {
+				$safeRepackDate = mysqli_real_escape_string($connectDB, $repackDate);
+				$safeSourceName = mysqli_real_escape_string($connectDB, (string) ($sourceProduct['ProductName'] ?? ''));
+				$safeTargetName = mysqli_real_escape_string($connectDB, (string) ($targetProduct['ProductName'] ?? ''));
+				$safeSourceQty = mysqli_real_escape_string($connectDB, number_format($sourceQty, 2, '.', ''));
+				$safeTargetQty = mysqli_real_escape_string($connectDB, number_format($targetQty, 2, '.', ''));
+				$safeSourceFactor = mysqli_real_escape_string($connectDB, number_format($sourceFactor, 4, '.', ''));
+				$safeTargetFactor = mysqli_real_escape_string($connectDB, number_format($targetFactor, 4, '.', ''));
+				$safeNotes = mysqli_real_escape_string($connectDB, $notes);
+				$targetBaseUnit = junkshop_normalize_base_unit($targetProduct['ProductBaseUnit'] ?? 'pc');
+				$safeSourceUnit = mysqli_real_escape_string($connectDB, $sourceUnit);
+				$safeTargetUnit = mysqli_real_escape_string($connectDB, $targetBaseUnit);
+
+				if (!$connectDB->query("
+					INSERT INTO product_repacks (
+						RepackDate, SourceProduct_ID, SourceProductName, TargetProduct_ID, TargetProductName,
+						SourceQty, SourceUnit, TargetQty, TargetUnit, SourceUnitFactor, TargetUnitFactor, Notes
+					)
+					VALUES (
+						'$safeRepackDate', '$sourceProductId', '$safeSourceName', '$targetProductId', '$safeTargetName',
+						'$safeSourceQty', '$safeSourceUnit', '$safeTargetQty', '$safeTargetUnit', '$safeSourceFactor', '$safeTargetFactor', '$safeNotes'
+					)
+				")) {
+					throw new Exception('Unable to save repack record.');
+				}
+
+				$repackId = (int) $connectDB->insert_id;
+				if ($repackId <= 0) {
+					throw new Exception('Unable to create repack record.');
+				}
+
+				$deductNotes = 'Repack to ' . trim((string) ($targetProduct['ProductName'] ?? 'target product'));
+				if ($usesAlternateUnit) {
+					$deductResult = junkshop_deduct_inventory_for_sale(
+						$connectDB,
+						$sourceProductId,
+						(string) ($sourceProduct['ProductName'] ?? ''),
+						$sourceQty,
+						$sourceUnit,
+						$sourceBaseUnit,
+						(int) ($sourceProduct['CanConvertToKg'] ?? 0),
+						(float) ($sourceProduct['KgEquivalentQty'] ?? 0),
+						(string) ($sourceProduct['AlternateSaleUnit'] ?? ''),
+						$repackDate,
+						$repackId,
+						'',
+						false,
+						'REPACK',
+						'Repack#' . $repackId,
+						$deductNotes . ' using ' . junkshop_unit_label($sourceUnit)
+					);
+				} else {
+					$deductResult = junkshop_deduct_inventory_fifo(
+						$connectDB,
+						$sourceProductId,
+						(string) ($sourceProduct['ProductName'] ?? ''),
+						$sourceQty,
+						$repackDate,
+						$repackId,
+						'',
+						false,
+						$deductNotes,
+						'REPACK',
+						'Repack#' . $repackId
+					);
+				}
+				if (($deductResult['remaining'] ?? 0) > 0.009) {
+					throw new Exception('Unable to deduct the full source quantity from inventory.');
+				}
+
+				$totalCost = round((float) ($deductResult['cost'] ?? 0), 2);
+				$targetUnitCost = round($totalCost / $targetQty, 2);
+				if (!junkshop_record_repack_inventory(
+					$connectDB,
+					$targetProductId,
+					(string) ($targetProduct['ProductName'] ?? ''),
+					$repackDate,
+					$repackId,
+					$targetQty,
+					$targetUnitCost
+				)) {
+					throw new Exception('Unable to add repacked stock to the target product.');
+				}
+
+				$safeTotalCost = mysqli_real_escape_string($connectDB, number_format($totalCost, 2, '.', ''));
+				if (!$connectDB->query("UPDATE product_repacks SET TotalCost = '$safeTotalCost' WHERE ID = '$repackId'")) {
+					throw new Exception('Unable to finalize repack cost.');
+				}
+
+				$connectDB->commit();
+				return [
+					'success' => true,
+					'message' => 'Repack completed successfully.',
+					'repack_id' => $repackId,
+					'source_qty' => $sourceQty,
+					'source_unit' => $sourceUnit,
+					'target_qty' => $targetQty,
+					'target_unit' => $targetBaseUnit,
+					'total_cost' => $totalCost,
+				];
+			} catch (Exception $exception) {
+				$connectDB->rollback();
+				$errorMessage = trim($exception->getMessage());
+				return [
+					'success' => false,
+					'message' => $errorMessage !== '' ? $errorMessage : 'Unable to complete repack.',
+				];
+			}
 		}
 	}
 
@@ -1029,7 +1528,7 @@
 	}
 
 	if (!function_exists('junkshop_deduct_inventory_fifo')) {
-		function junkshop_deduct_inventory_fifo($connectDB, $productId, $productName, $quantity, $saleDate, $saleId, $deliveryNo, $includeTankUnitCost = false, $notes = '') {
+		function junkshop_deduct_inventory_fifo($connectDB, $productId, $productName, $quantity, $saleDate, $saleId, $deliveryNo, $includeTankUnitCost = false, $notes = '', $referenceType = 'SALE', $referenceNo = '') {
 			$productId = (int) $productId;
 			$quantity = round((float) $quantity, 2);
 			if ($productId <= 0 || $quantity <= 0) {
@@ -1045,6 +1544,12 @@
 				$movementNotes = 'FIFO sale deduction for Sale#' . $safeDeliveryNo;
 			}
 			$safeNotes = mysqli_real_escape_string($connectDB, $movementNotes);
+			$safeReferenceType = mysqli_real_escape_string($connectDB, trim((string) $referenceType) !== '' ? trim((string) $referenceType) : 'SALE');
+			if (trim((string) $referenceNo) !== '') {
+				$safeReferenceNo = mysqli_real_escape_string($connectDB, trim((string) $referenceNo));
+			} else {
+				$safeReferenceNo = 'SaleID#' . $safeSaleId;
+			}
 			$productClause = junkshop_inventory_product_clause($connectDB, $productId, trim((string) $productName));
 			$remainingToDeduct = $quantity;
 			$linePurchaseCost = 0.0;
@@ -1072,7 +1577,7 @@
 				$connectDB->query("UPDATE inventory_batches SET QuantityRemaining = QuantityRemaining - $safeDeductQty WHERE ID = '$batchId'");
 				$connectDB->query("
 					INSERT INTO inventory_movements (Product_ID, ProductName, Batch_ID, MovementDate, MovementType, Quantity, UnitCost, TotalCost, ReferenceType, ReferenceNo, Notes)
-					VALUES ('$productId', '$safeProductName', '$batchId', '$safeSaleDate', 'OUT', '$safeDeductQty', '$safeUnitCost', '$safeDeductCost', 'SALE', 'SaleID#$safeSaleId', '$safeNotes')
+					VALUES ('$productId', '$safeProductName', '$batchId', '$safeSaleDate', 'OUT', '$safeDeductQty', '$safeUnitCost', '$safeDeductCost', '$safeReferenceType', '$safeReferenceNo', '$safeNotes')
 				");
 				$remainingToDeduct -= $deductQty;
 			}
@@ -1098,7 +1603,10 @@
 			$saleDate,
 			$saleId,
 			$deliveryNo,
-			$includeTankUnitCost = false
+			$includeTankUnitCost = false,
+			$referenceType = 'SALE',
+			$referenceNo = '',
+			$notes = ''
 		) {
 			$productId = (int) $productId;
 			$saleQuantity = round((float) $saleQuantity, 2);
@@ -1125,7 +1633,10 @@
 					$saleDate,
 					$saleId,
 					$deliveryNo,
-					$includeTankUnitCost
+					$includeTankUnitCost,
+					$notes,
+					$referenceType,
+					$referenceNo
 				);
 			}
 
@@ -1161,7 +1672,9 @@
 					$saleId,
 					$deliveryNo,
 					$includeTankUnitCost,
-					'Opened base unit for alternate sale Sale#' . (int) $deliveryNo
+					$notes !== '' ? $notes : 'Opened base unit for alternate sale Sale#' . (int) $deliveryNo,
+					$referenceType,
+					$referenceNo
 				);
 				if ($fifoResult['remaining'] > 0.009) {
 					junkshop_set_opened_alternate_stock($connectDB, $productId, $openedQty, $openedCost);
@@ -2805,6 +3318,35 @@
 		}
 	}
 
+	$createProductRepacksTableSql = "CREATE TABLE IF NOT EXISTS product_repacks (
+		ID int(11) NOT NULL AUTO_INCREMENT,
+		RepackDate datetime NOT NULL,
+		SourceProduct_ID int(11) NOT NULL DEFAULT 0,
+		SourceProductName varchar(255) NOT NULL DEFAULT '',
+		TargetProduct_ID int(11) NOT NULL DEFAULT 0,
+		TargetProductName varchar(255) NOT NULL DEFAULT '',
+		SourceQty decimal(12,2) NOT NULL DEFAULT 0.00,
+		TargetQty decimal(12,2) NOT NULL DEFAULT 0.00,
+		SourceUnitFactor decimal(12,4) NOT NULL DEFAULT 1.0000,
+		TargetUnitFactor decimal(12,4) NOT NULL DEFAULT 1.0000,
+		TotalCost decimal(12,2) NOT NULL DEFAULT 0.00,
+		Notes varchar(500) NOT NULL DEFAULT '',
+		CreatedAt timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		PRIMARY KEY (ID),
+		KEY RepackDate (RepackDate),
+		KEY SourceProduct_ID (SourceProduct_ID),
+		KEY TargetProduct_ID (TargetProduct_ID)
+	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci";
+	$connectDB->query($createProductRepacksTableSql);
+	$productRepackSourceUnitColumnCheck = $connectDB->query("SHOW COLUMNS FROM product_repacks LIKE 'SourceUnit'");
+	if (!$productRepackSourceUnitColumnCheck || $productRepackSourceUnitColumnCheck->num_rows === 0) {
+		$connectDB->query("ALTER TABLE product_repacks ADD COLUMN SourceUnit varchar(20) NOT NULL DEFAULT '' AFTER SourceQty");
+	}
+	$productRepackTargetUnitColumnCheck = $connectDB->query("SHOW COLUMNS FROM product_repacks LIKE 'TargetUnit'");
+	if (!$productRepackTargetUnitColumnCheck || $productRepackTargetUnitColumnCheck->num_rows === 0) {
+		$connectDB->query("ALTER TABLE product_repacks ADD COLUMN TargetUnit varchar(20) NOT NULL DEFAULT '' AFTER TargetQty");
+	}
+
 	$salesLpgTransactionTypeColumnCheck = $connectDB->query("SHOW COLUMNS FROM sales LIKE 'LpgTransactionType'");
 	if ($salesLpgTransactionTypeColumnCheck && ($salesLpgTransactionTypeColumn = $salesLpgTransactionTypeColumnCheck->fetch_assoc())) {
 		if (stripos((string) ($salesLpgTransactionTypeColumn['Type'] ?? ''), 'LENT') === false) {
@@ -2921,37 +3463,9 @@
 			");
 		}
 
-		if (!empty($defaultRiceSackProducts)) {
-			$sackNamesList = implode(',', array_map(function ($name) use ($connectDB) {
-				return "'" . mysqli_real_escape_string($connectDB, $name) . "'";
-			}, $defaultRiceSackProducts));
-			$connectDB->query("
-				UPDATE products
-				SET ProductType = 'Rice',
-					ProductBaseUnit = 'sack',
-					CanConvertToKg = 1,
-					KgEquivalentQty = 25.00,
-					AlternateSaleUnit = 'kg'
-				WHERE ProductName IN ($sackNamesList)
-					AND COALESCE(IsSubProduct, 0) = 0
-			");
-		}
-
-		if (!empty($defaultRice5kgProducts)) {
-			$fiveKgNamesList = implode(',', array_map(function ($name) use ($connectDB) {
-				return "'" . mysqli_real_escape_string($connectDB, $name) . "'";
-			}, $defaultRice5kgProducts));
-			$connectDB->query("
-				UPDATE products
-				SET ProductType = 'Rice',
-					ProductBaseUnit = 'pc',
-					CanConvertToKg = 0,
-					KgEquivalentQty = 0.00,
-					AlternateSaleUnit = ''
-				WHERE ProductName IN ($fiveKgNamesList)
-					AND COALESCE(IsSubProduct, 0) = 0
-			");
-		}
+		// Default products are inserted only when missing. Existing rows must not
+		// be reset here because this file runs on every request and administrators
+		// may customize their units and conversion settings from Product List.
 	}
 
 	if ($productsTableExists) {

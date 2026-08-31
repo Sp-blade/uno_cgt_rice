@@ -1,17 +1,42 @@
 <?php
 	
-	$productName = mysqli_real_escape_string($connectDB, trim($_GET['product_name'] ?? ''));
-	$productType = mysqli_real_escape_string($connectDB, trim($_GET['product_type'] ?? ''));
-	$productBaseUnit = junkshop_normalize_base_unit($_GET['product_base_unit'] ?? 'pc');
+	$formInput = static function ($key, $default = '') {
+		if (isset($_POST[$key])) {
+			return $_POST[$key];
+		}
+		if (isset($_GET[$key])) {
+			return $_GET[$key];
+		}
+		return $default;
+	};
+	$formInputIsset = static function ($key) {
+		return isset($_POST[$key]) || isset($_GET[$key]);
+	};
+	$formCheckboxEnabled = static function ($key) use ($formInput, $formInputIsset) {
+		if (!$formInputIsset($key)) {
+			return 0;
+		}
+
+		$value = $formInput($key, '0');
+		if (is_array($value)) {
+			$value = end($value);
+		}
+
+		return (string) $value !== '0' && (string) $value !== '' ? 1 : 0;
+	};
+
+	$productName = mysqli_real_escape_string($connectDB, trim((string) $formInput('product_name', '')));
+	$productType = mysqli_real_escape_string($connectDB, trim((string) $formInput('product_type', '')));
+	$productBaseUnit = junkshop_normalize_base_unit($formInput('product_base_unit', 'pc'));
 	$productPrice = '0.00';
-	$sellingPrice = mysqli_real_escape_string($connectDB, $_GET['selling_price'] ?? 0);
-	$alternateSellingPriceValue = (float) ($_GET['alternate_selling_price'] ?? 0);
-	$stockLimit = mysqli_real_escape_string($connectDB, $_GET['stock_limit'] ?? 0);
+	$sellingPrice = mysqli_real_escape_string($connectDB, $formInput('selling_price', 0));
+	$alternateSellingPriceValue = (float) $formInput('alternate_selling_price', 0);
+	$stockLimit = mysqli_real_escape_string($connectDB, $formInput('stock_limit', 0));
 	$isSubProduct = 0;
 	$parentProductId = 0;
-	$canConvertToKg = isset($_GET['can_convert_to_kg']) ? 1 : 0;
-	$kgEquivalentQty = (float) ($_GET['kg_equivalent_qty'] ?? 0);
-	$alternateSaleUnitRaw = trim((string) ($_GET['alternate_sale_unit'] ?? ''));
+	$canConvertToKg = $formCheckboxEnabled('can_convert_to_kg');
+	$kgEquivalentQty = (float) $formInput('kg_equivalent_qty', 0);
+	$alternateSaleUnitRaw = trim((string) $formInput('alternate_sale_unit', ''));
 	$alternateSaleUnit = $alternateSaleUnitRaw !== '' ? junkshop_normalize_base_unit($alternateSaleUnitRaw) : '';
 	if ($alternateSaleUnit === junkshop_normalize_base_unit($productBaseUnit)) {
 		$alternateSaleUnit = '';
@@ -26,16 +51,16 @@
 	$alternateSaleUnit = mysqli_real_escape_string($connectDB, $alternateSaleUnit);
 	$kgEquivalentQty = mysqli_real_escape_string($connectDB, number_format($kgEquivalentQty, 2, '.', ''));
 	$alternateSellingPrice = mysqli_real_escape_string($connectDB, number_format($alternateSellingPriceValue, 2, '.', ''));
-	$lpgRefillPriceValue = round((float) ($_GET['lpg_refill_price'] ?? 0), 2);
-	$lpgNewTankPriceValue = round((float) ($_GET['lpg_new_tank_price'] ?? 0), 2);
+	$lpgRefillPriceValue = round((float) $formInput('lpg_refill_price', 0), 2);
+	$lpgNewTankPriceValue = round((float) $formInput('lpg_new_tank_price', 0), 2);
 	$lpgRefillPrice = mysqli_real_escape_string($connectDB, number_format($lpgRefillPriceValue, 2, '.', ''));
 	$lpgNewTankPrice = mysqli_real_escape_string($connectDB, number_format($lpgNewTankPriceValue, 2, '.', ''));
-	$isLpgProductType = strtoupper(trim((string) ($_GET['product_type'] ?? ''))) === 'LPG';
+	$isLpgProductType = strtoupper(trim((string) $formInput('product_type', ''))) === 'LPG';
 	if ($isLpgProductType && $lpgRefillPriceValue > 0) {
 		$sellingPrice = $lpgRefillPrice;
 	}
-	$productId = (int) ($_GET['product_id'] ?? 0);
-	$targetActive = isset($_GET['target_active']) ? (int) $_GET['target_active'] : 1;
+	$productId = (int) $formInput('product_id', 0);
+	$targetActive = $formInputIsset('target_active') ? (int) $formInput('target_active', 1) : 1;
 	$purchasesHasProductId = false;
 	$checkProductIdColumn = $connectDB->query("SHOW COLUMNS FROM purchases LIKE 'Product_ID'");
 	if ($checkProductIdColumn && $checkProductIdColumn->num_rows > 0) {

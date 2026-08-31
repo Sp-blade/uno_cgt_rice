@@ -158,6 +158,16 @@
 		color: #6c7a89;
 		font-weight: 700;
 		letter-spacing: 1px;
+		cursor: grab;
+		user-select: none;
+	}
+
+	.product-list-drag-cell:active {
+		cursor: grabbing;
+	}
+
+	.product-list-actions-cell {
+		cursor: default;
 	}
 </style>
 
@@ -226,7 +236,6 @@
 							?>
 							<tr
 								class="product-list-row"
-								draggable="true"
 								data-product-id="<?php echo (int) $Product['Product_ID']; ?>"
 								data-product-name="<?php echo htmlspecialchars($Product['ProductName'], ENT_QUOTES); ?>"
 								data-product-type="<?php echo htmlspecialchars($Product['ProductType'] !== '' ? $Product['ProductType'] : 'Products', ENT_QUOTES); ?>"
@@ -243,7 +252,7 @@
 								data-product-active="<?php echo (int) $Product['IsActive']; ?>"
 								data-product-exportable="<?php echo ($Product['IsSubProduct'] === 0) ? '1' : '0'; ?>"
 							>
-								<td class="product-list-drag-cell">::</td>
+								<td class="product-list-drag-cell" draggable="true" title="Drag to reorder">::</td>
 								<td class="product-list-row-number"><?php echo $index + 1; ?></td>
 								<td>
 									<div class="d-flex flex-column gap-1">
@@ -300,11 +309,9 @@
 										<span class="text-muted">Not set</span>
 									<?php endif; ?>
 								</td>
-								<td class="text-center">
+								<td class="text-center product-list-actions-cell">
 									<div class="icon-action-group justify-content-center">
 										<button
-											data-bs-toggle="modal"
-											data-bs-target="#editProductDetails"
 											type="button"
 											class="icon-action-btn icon-action-btn-edit"
 											data-id="<?php echo $Product['Product_ID']; ?>"
@@ -367,11 +374,10 @@
 	}, {});
 
 	$(document).ready(function () {
-		$('#editProductDetails').on('show.bs.modal', function (event) {
-			var button = $(event.relatedTarget);
-			var productId = button.data('id');
-			var productName = button.data('name');
-			var productType = button.data('type');
+		function populateEditProductModal(button) {
+			var productId = button.attr('data-id') || button.data('id');
+			var productName = button.attr('data-name') || button.data('name') || '';
+			var productType = button.attr('data-type') || button.data('type') || '';
 			var productBaseUnit = button.attr('data-base-unit') || 'pc';
 			var canConvert = button.attr('data-can-convert') || '0';
 			var kgEquivalent = button.attr('data-kg-equivalent') || '0';
@@ -383,12 +389,12 @@
 			var isLpgProduct = String(button.attr('data-is-lpg') || '0') === '1';
 			var stockLimit = button.attr('data-stock-limit') || 0;
 
-			var modal = $(this);
+			var modal = $('#editProductDetails');
 			modal.find('input[name="productID"]').val(productId);
 			modal.find('input[name="product_name"]').val(productName);
 			modal.find('input[name="product_type"]').val(productType);
 			modal.find('select[name="product_base_unit"]').val(productBaseUnit);
-			modal.find('input[name="can_convert_to_kg"]').prop('checked', Number(canConvert) === 1);
+			modal.find('input[name="can_convert_to_kg"][type="checkbox"]').prop('checked', Number(canConvert) === 1);
 			modal.find('input[name="kg_equivalent_qty"]').val(kgEquivalent);
 			modal.find('select[name="alternate_sale_unit"]').val(alternateUnit);
 			modal.find('input[name="selling_price"]').val(sellingPrice);
@@ -398,6 +404,26 @@
 			modal.find('input[name="stock_limit"]').val(stockLimit);
 			toggleProductLpgPricing(modal[0], productType || (isLpgProduct ? 'LPG' : ''));
 			toggleProductConversionFields(modal[0]);
+		}
+
+		$(document).on('click', '.icon-action-btn-edit', function (event) {
+			event.preventDefault();
+			event.stopPropagation();
+			var button = $(this);
+			var modalElement = document.getElementById('editProductDetails');
+			if (!modalElement || typeof bootstrap === 'undefined') {
+				return;
+			}
+			populateEditProductModal(button);
+			bootstrap.Modal.getOrCreateInstance(modalElement).show();
+		});
+
+		$('#editProductDetails').on('show.bs.modal', function (event) {
+			var trigger = event.relatedTarget;
+			if (!trigger || !trigger.classList.contains('icon-action-btn-edit')) {
+				return;
+			}
+			populateEditProductModal($(trigger));
 		});
 
 		$('#addNewProduct').on('show.bs.modal', function () {
@@ -409,18 +435,46 @@
 			modal.find('input[name="stock_limit"]').val('0');
 			modal.find('select[name="product_base_unit"]').val('pc');
 			modal.find('select[name="alternate_sale_unit"]').val('');
-			modal.find('input[name="can_convert_to_kg"]').prop('checked', false);
+			modal.find('input[name="can_convert_to_kg"][type="checkbox"]').prop('checked', false);
 			modal.find('input[name="kg_equivalent_qty"]').val('0');
 			toggleProductLpgPricing(modal[0], modal.find('input[name="product_type"]').val());
 			toggleProductConversionFields(modal[0]);
 		});
 
 		$(document).on('input change', '#edit_product_type, #new_product_type', function () {
-			toggleProductLpgPricing(this.closest('.modal'), this.value);
+			var modalElement = this.closest('.modal');
+			toggleProductLpgPricing(modalElement, this.value);
+			toggleProductConversionFields(modalElement);
 		});
 
-		$(document).on('submit', '#editProductDetails form, #addNewProduct form', function () {
-			var form = this;
+		function isFieldVisibleForValidation(field) {
+			if (!field || field.type === 'hidden' || field.disabled) {
+				return false;
+			}
+
+			var node = field;
+			while (node && node !== document.body) {
+				var style = window.getComputedStyle(node);
+				if (style.display === 'none' || style.visibility === 'hidden') {
+					return false;
+				}
+				node = node.parentElement;
+			}
+
+			return field.offsetParent !== null || field.getClientRects().length > 0;
+		}
+
+		function prepareProductFormForSubmit(form) {
+			if (!form) {
+				return;
+			}
+
+			form.querySelectorAll('[required]').forEach(function (field) {
+				if (!isFieldVisibleForValidation(field)) {
+					field.removeAttribute('required');
+				}
+			});
+
 			var typeInput = form.querySelector('input[name="product_type"]');
 			if (typeInput && String(typeInput.value || '').trim().toUpperCase() === 'LPG') {
 				var refillInput = form.querySelector('input[name="lpg_refill_price"]');
@@ -429,6 +483,26 @@
 					sellingInput.value = refillInput.value;
 				}
 			}
+
+			var convertCheckbox = form.querySelector('input[name="can_convert_to_kg"][type="checkbox"]');
+			if (convertCheckbox && !convertCheckbox.checked) {
+				var alternateUnitSelect = form.querySelector('select[name="alternate_sale_unit"]');
+				var conversionQtyInput = form.querySelector('input[name="kg_equivalent_qty"]');
+				var alternatePriceInput = form.querySelector('input[name="alternate_selling_price"]');
+				if (alternateUnitSelect) {
+					alternateUnitSelect.value = '';
+				}
+				if (conversionQtyInput) {
+					conversionQtyInput.value = '0';
+				}
+				if (alternatePriceInput) {
+					alternatePriceInput.value = '';
+				}
+			}
+		}
+
+		$(document).on('submit', '#editProductDetails form, #addNewProduct form', function () {
+			prepareProductFormForSubmit(this);
 		});
 
 		$(document).on('change', '#edit_product_base_unit, #new_product_base_unit, #edit_can_convert_to_kg, #new_can_convert_to_kg, #edit_alternate_sale_unit, #new_alternate_sale_unit', function () {
@@ -562,7 +636,7 @@
 		var alternatePriceLabel = modalElement.querySelector('.product-alternate-price-label');
 		var alternatePriceInput = modalElement.querySelector('input[name="alternate_selling_price"]');
 		var alternateUnitSelect = modalElement.querySelector('select[name="alternate_sale_unit"]');
-		var convertCheckbox = modalElement.querySelector('input[name="can_convert_to_kg"]');
+		var convertCheckbox = modalElement.querySelector('input[name="can_convert_to_kg"][type="checkbox"]');
 		var conversionQtyWrap = modalElement.querySelector('.product-conversion-qty-wrap');
 		var conversionQtyInput = modalElement.querySelector('input[name="kg_equivalent_qty"]');
 		if (!baseUnitSelect || !conversionWrap) {
@@ -609,7 +683,7 @@
 		}
 		if (alternatePriceInput) {
 			alternatePriceInput.required = conversionEnabled && hasAlternateUnit;
-			if (!conversionEnabled || !hasAlternateUnit) {
+			if (!conversionEnabled) {
 				alternatePriceInput.value = '';
 			}
 		}
@@ -727,7 +801,7 @@
 	}
 
 	function initializeProductListSorting() {
-		var tableBody = document.querySelector('.table tbody');
+		var tableBody = document.querySelector('.product-list-table tbody');
 		if (!tableBody) {
 			return;
 		}
@@ -736,6 +810,13 @@
 
 		function getRows() {
 			return Array.prototype.slice.call(tableBody.querySelectorAll('.product-list-row'));
+		}
+
+		function getRowFromNode(node) {
+			if (!node || !node.closest) {
+				return null;
+			}
+			return node.closest('.product-list-row');
 		}
 
 		function updateRowNumbers() {
@@ -789,19 +870,29 @@
 			});
 		}
 
-		getRows().forEach(function (row) {
-			row.addEventListener('dragstart', function () {
-				draggedRow = row;
-				row.classList.add('is-dragging');
+		tableBody.querySelectorAll('.product-list-drag-cell').forEach(function (handle) {
+			handle.addEventListener('dragstart', function (event) {
+				draggedRow = getRowFromNode(handle);
+				if (!draggedRow) {
+					return;
+				}
+				event.stopPropagation();
+				draggedRow.classList.add('is-dragging');
+				if (event.dataTransfer) {
+					event.dataTransfer.effectAllowed = 'move';
+					event.dataTransfer.setData('text/plain', draggedRow.getAttribute('data-product-id') || '');
+				}
 			});
 
-			row.addEventListener('dragend', function () {
+			handle.addEventListener('dragend', function () {
 				draggedRow = null;
 				clearDragState();
 				updateRowNumbers();
 				saveOrder();
 			});
+		});
 
+		getRows().forEach(function (row) {
 			row.addEventListener('dragover', function (event) {
 				event.preventDefault();
 				if (!draggedRow || draggedRow === row) {
@@ -1020,7 +1111,7 @@
 <div class="modal fade" id="editProductDetails" tabindex="-1" aria-hidden="true">
 	<div class="modal-dialog modal-dialog-centered">
 		<div class="modal-content">
-			<form class="form new-form" method="GET">
+			<form class="form new-form" method="POST" action="index.php">
 				<div class="modal-header">
 					<h4 class="modal-title">Edit Product</h4>
 					<button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
@@ -1029,6 +1120,9 @@
 					<input type="hidden" name="mainmenu" value="product_list" />
 					<input type="hidden" name="edit_product" value="edit_product" />
 					<input type="hidden" name="productID" value="" />
+					<?php if ($searchProduct !== ''): ?>
+						<input type="hidden" name="searchProduct" value="<?php echo htmlspecialchars($searchProduct, ENT_QUOTES); ?>" />
+					<?php endif; ?>
 
 					<label for="edit_product_name" class="form-label">Product Name</label>
 					<input type="text" class="form-control mb-1" id="edit_product_name" name="product_name" value="" required />
@@ -1048,6 +1142,7 @@
 					</select>
 
 					<div class="product-conversion-wrap mb-3">
+						<input type="hidden" name="can_convert_to_kg" value="0" />
 						<div class="form-check mb-2">
 							<input class="form-check-input" type="checkbox" value="1" id="edit_can_convert_to_kg" name="can_convert_to_kg" />
 							<label class="form-check-label" for="edit_can_convert_to_kg">Enable alternate sale unit</label>
@@ -1101,7 +1196,7 @@
 <div class="modal fade" id="addNewProduct" tabindex="-1" aria-hidden="true">
 	<div class="modal-dialog modal-dialog-centered">
 		<div class="modal-content">
-			<form class="form new-form" method="GET">
+			<form class="form new-form" method="POST" action="index.php">
 				<div class="modal-header">
 					<h4 class="modal-title">Add Product</h4>
 					<button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
@@ -1132,6 +1227,7 @@
 					</select>
 
 					<div class="product-conversion-wrap mb-3">
+						<input type="hidden" name="can_convert_to_kg" value="0" />
 						<div class="form-check mb-2">
 							<input class="form-check-input" type="checkbox" value="1" id="new_can_convert_to_kg" name="can_convert_to_kg" />
 							<label class="form-check-label" for="new_can_convert_to_kg">Enable alternate sale unit</label>
