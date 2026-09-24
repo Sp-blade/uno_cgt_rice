@@ -2163,3 +2163,45 @@ a.btn {
 		grid-template-columns: 1fr;
 	}
 }
+
+.body-login {
+	min-height: 100vh;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: 24px;
+}
+
+.login-shell {
+	width: 100%;
+	max-width: 440px;
+}
+
+.login-card {
+	background: var(--surface-strong);
+	border: 1px solid var(--stroke);
+	border-radius: var(--radius-xl);
+	box-shadow: var(--shadow-lg);
+	padding: 32px;
+}
+
+.login-brand {
+	display: flex;
+	align-items: center;
+	gap: 14px;
+	margin-bottom: 18px;
+}
+
+.login-brand h1 {
+	margin: 0;
+	font-size: 1.15rem;
+}
+
+.login-subtitle {
+	color: var(--text-soft);
+	margin-bottom: 24px;
+}
+
+.login-form .btn {
+	min-height: var(--btn-height);
+}

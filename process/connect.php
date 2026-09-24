@@ -1,4 +1,7 @@
 <?php
+	if (session_status() !== PHP_SESSION_ACTIVE) {
+		session_start();
+	}
 	date_default_timezone_set('Asia/Manila');
 
 	$hosts = array("127.0.0.1", "localhost");
@@ -3782,6 +3785,124 @@
 		? junkshop_build_custom_theme_vars($appThemeCustomPrimary, $appThemeCustomAccent, $appThemeCustomBackground)
 		: [];
 	$appSettingsId = (int) ($appSettings['ID'] ?? 1);
+
+	$createUsersTableSql = "CREATE TABLE IF NOT EXISTS users (
+		ID int(11) NOT NULL AUTO_INCREMENT,
+		Username varchar(80) NOT NULL,
+		PasswordHash varchar(255) NOT NULL,
+		FullName varchar(255) NOT NULL DEFAULT '',
+		IsActive tinyint(1) NOT NULL DEFAULT 1,
+		CreatedAt timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		PRIMARY KEY (ID),
+		UNIQUE KEY Username (Username)
+	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci";
+	$connectDB->query($createUsersTableSql);
+
+	$adminUsername = 'Admin';
+	$safeAdminUsername = mysqli_real_escape_string($connectDB, $adminUsername);
+	$adminUserCheck = $connectDB->query("SELECT ID FROM users WHERE Username = '$safeAdminUsername' LIMIT 1");
+	if (!$adminUserCheck || $adminUserCheck->num_rows === 0) {
+		$adminPasswordHash = password_hash('Admin', PASSWORD_DEFAULT);
+		$safeAdminPasswordHash = mysqli_real_escape_string($connectDB, $adminPasswordHash);
+		$connectDB->query("
+			INSERT INTO users (Username, PasswordHash, FullName, IsActive)
+			VALUES ('$safeAdminUsername', '$safeAdminPasswordHash', 'Administrator', 1)
+		");
+	}
+
+	if (!function_exists('junkshop_current_user_id')) {
+		function junkshop_current_user_id() {
+			return (int) ($_SESSION['user_id'] ?? 0);
+		}
+	}
+
+	if (!function_exists('junkshop_load_user_by_id')) {
+		function junkshop_load_user_by_id($connectDB, $userId) {
+			$userId = (int) $userId;
+			if ($userId <= 0) {
+				return null;
+			}
+			$result = $connectDB->query("
+				SELECT ID, Username, FullName, IsActive
+				FROM users
+				WHERE ID = '$userId'
+				LIMIT 1
+			");
+			if (!$result || !($row = $result->fetch_assoc())) {
+				return null;
+			}
+			return [
+				'id' => (int) ($row['ID'] ?? 0),
+				'username' => trim((string) ($row['Username'] ?? '')),
+				'full_name' => trim((string) ($row['FullName'] ?? '')),
+				'is_active' => (int) ($row['IsActive'] ?? 0) === 1,
+			];
+		}
+	}
+
+	if (!function_exists('junkshop_clear_login_session')) {
+		function junkshop_clear_login_session() {
+			unset($_SESSION['user_id'], $_SESSION['username'], $_SESSION['full_name']);
+		}
+	}
+
+	if (!function_exists('junkshop_current_user')) {
+		function junkshop_current_user($connectDB) {
+			$user = junkshop_load_user_by_id($connectDB, junkshop_current_user_id());
+			if ($user === null || empty($user['is_active'])) {
+				junkshop_clear_login_session();
+				return null;
+			}
+			$_SESSION['username'] = $user['username'];
+			$_SESSION['full_name'] = $user['full_name'];
+			return $user;
+		}
+	}
+
+	if (!function_exists('junkshop_attempt_login')) {
+		function junkshop_attempt_login($connectDB, $username, $password) {
+			$username = trim((string) $username);
+			$password = (string) $password;
+			if ($username === '' || $password === '') {
+				return ['success' => false, 'message' => 'Enter your username and password.'];
+			}
+
+			$safeUsername = mysqli_real_escape_string($connectDB, $username);
+			$result = $connectDB->query("
+				SELECT ID, Username, PasswordHash, FullName, IsActive
+				FROM users
+				WHERE Username = '$safeUsername'
+				LIMIT 1
+			");
+			if (!$result || !($row = $result->fetch_assoc())) {
+				return ['success' => false, 'message' => 'Invalid username or password.'];
+			}
+			if ((int) ($row['IsActive'] ?? 0) !== 1) {
+				return ['success' => false, 'message' => 'This account is inactive. Ask an administrator to activate it.'];
+			}
+			if (!password_verify($password, (string) ($row['PasswordHash'] ?? ''))) {
+				return ['success' => false, 'message' => 'Invalid username or password.'];
+			}
+
+			$_SESSION['user_id'] = (int) ($row['ID'] ?? 0);
+			$_SESSION['username'] = trim((string) ($row['Username'] ?? ''));
+			$_SESSION['full_name'] = trim((string) ($row['FullName'] ?? ''));
+
+			return ['success' => true, 'message' => 'Logged in successfully.'];
+		}
+	}
+
+	if (!function_exists('junkshop_require_login')) {
+		function junkshop_require_login($connectDB, $server) {
+			if (junkshop_current_user($connectDB) !== null) {
+				return;
+			}
+			header('Location: ' . $server . '?mainmenu=login');
+			exit;
+		}
+	}
+
+	$currentUser = junkshop_current_user($connectDB);
 
 	$server = "/uno_cgt_rice/";
 ?>

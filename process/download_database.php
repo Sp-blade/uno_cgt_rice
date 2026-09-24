@@ -1,5 +1,6 @@
 <?php
 include "connect.php";
+junkshop_require_login($connectDB, $server);
 
 header('Content-Type: application/sql');
 header('Content-Disposition: attachment; filename="unocgtricedb_backup.sql"');

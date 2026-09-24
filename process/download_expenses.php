@@ -1,5 +1,6 @@
 <?php
 include "connect.php";
+junkshop_require_login($connectDB, $server);
 
 $sql = "SELECT * FROM expenses ORDER BY ExpenseDate DESC, ExpenseNo DESC, ID DESC";
 $result = $connectDB->query($sql);

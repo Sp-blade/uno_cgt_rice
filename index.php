@@ -3,6 +3,28 @@
 
     require "process/connect.php";
 
+    $loginError = '';
+    $loginUsername = '';
+    if ($mainMenu === 'logout') {
+        junkshop_clear_login_session();
+        header('Location: ' . $server . '?mainmenu=login');
+        exit;
+    }
+    if ($mainMenu === 'login' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+        $loginUsername = trim((string) ($_POST['username'] ?? ''));
+        $loginResult = junkshop_attempt_login($connectDB, $loginUsername, (string) ($_POST['password'] ?? ''));
+        if (!empty($loginResult['success'])) {
+            header('Location: ' . $server);
+            exit;
+        }
+        $loginError = (string) ($loginResult['message'] ?? 'Unable to sign in.');
+        $currentUser = null;
+    }
+    if ($currentUser === null) {
+        require "view/login.php";
+        exit;
+    }
+
     if ($mainMenu === "save_expenses") {
         include "process/save_expenses.php";
         exit;
@@ -87,7 +109,7 @@
     $inventoryMenus = ['inventory', 'lpg_inventory', 'inventory_audit', 'repack_product'];
     $customerMenus = ['customers'];
     $reportMenus = [];
-    $settingsMenus = ['company_profile', 'app_appearance', 'product_list', 'download_database', 'expense_category_list', 'view_expense_category'];
+    $settingsMenus = ['company_profile', 'app_appearance', 'product_list', 'download_database', 'expense_category_list', 'view_expense_category', 'user_list'];
 
     $pageTitles = [
         '' => 'Dashboard',
@@ -116,6 +138,7 @@
         'company_profile' => 'Company Profile',
         'app_appearance' => 'App Colors',
         'download_database' => 'Database Backup',
+        'user_list' => 'Add User',
     ];
 
     $currentTitle = isset($pageTitles[$activeMenu]) ? $pageTitles[$activeMenu] : 'Dashboard';
@@ -216,9 +239,15 @@
                             <a class="sub-link <?php echo ($activeMenu == 'download_database') ? 'active' : ''; ?>" href="?mainmenu=download_database">Database Backup</a>
                             <a class="sub-link <?php echo ($activeMenu == 'company_profile') ? 'active' : ''; ?>" href="?mainmenu=company_profile">Company Profile</a>
                             <a class="sub-link <?php echo ($activeMenu == 'app_appearance') ? 'active' : ''; ?>" href="?mainmenu=app_appearance">App Colors</a>
+                            <a class="sub-link <?php echo ($activeMenu == 'user_list') ? 'active' : ''; ?>" href="?mainmenu=user_list">Add User</a>
                         </div>
                     </div>
                 </div>
+
+                <a class="nav-link" href="?mainmenu=logout">
+                    <i class="bi bi-box-arrow-right"></i>
+                    <span>Sign out</span>
+                </a>
             </nav>
         </div>
     </aside>
@@ -235,8 +264,9 @@
                 <p class="page-kicker">Rice trading management</p>
                 <h2><?php echo htmlspecialchars($currentTitle); ?></h2>
             </div>
-            <div class="page-hero-badge">
-                <span class="badge text-bg-light">Bootstrap 5 UI</span>
+            <div class="page-hero-badge d-flex align-items-center gap-2 flex-wrap">
+                <span class="badge text-bg-light"><?php echo htmlspecialchars($currentUser['username'] !== '' ? $currentUser['username'] : 'User'); ?></span>
+                <a class="btn btn-outline-secondary btn-sm" href="?mainmenu=logout">Sign out</a>
             </div>
         </header>
 
@@ -370,6 +400,13 @@
                         require "view/download_database.php";
                     break;
 
+                    case "user_list":
+                        if (isset($_POST['user_action']) || isset($_GET['user_action'])) {
+                            include "process/manage_users.php";
+                        }
+                        require "view/user_list.php";
+                    break;
+
                     default:
                         require "view/dashboard.php";
                     break;
@@ -409,6 +446,8 @@
             <a class="nav-link <?php echo ($activeMenu == 'download_database') ? 'active' : ''; ?>" href="?mainmenu=download_database">Database Backup</a>
             <a class="nav-link <?php echo ($activeMenu == 'company_profile') ? 'active' : ''; ?>" href="?mainmenu=company_profile">Company Profile</a>
             <a class="nav-link <?php echo ($activeMenu == 'app_appearance') ? 'active' : ''; ?>" href="?mainmenu=app_appearance">App Colors</a>
+            <a class="nav-link <?php echo ($activeMenu == 'user_list') ? 'active' : ''; ?>" href="?mainmenu=user_list">Add User</a>
+            <a class="nav-link" href="?mainmenu=logout">Sign out</a>
         </nav>
     </div>
 </div>

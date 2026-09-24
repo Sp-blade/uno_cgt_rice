@@ -1,5 +1,6 @@
 <?php
 include "connect.php";
+junkshop_require_login($connectDB, $server);
 
 // SQL query to fetch data
 $sql = "SELECT * FROM purchases WHERE DATE(PurchaseDate) >= CURDATE() - INTERVAL 1 YEAR;";
