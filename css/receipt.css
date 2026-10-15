@@ -364,33 +364,52 @@ body {
 }
 
 @media print {
-	body:has(.receipt-printable) {
+	body.body-receipt:not(.body-purchase-invoice-print) {
 		width: 48mm;
 		margin: 0 !important;
 		padding: 0 !important;
 		background: #fff !important;
 	}
 
-	body:has(.receipt-printable) * {
-		visibility: hidden !important;
+	body.body-receipt:not(.body-purchase-invoice-print) .app-shell,
+	body.body-receipt:not(.body-purchase-invoice-print) .app-main,
+	body.body-receipt:not(.body-purchase-invoice-print) .page-body {
+		display: block !important;
+		position: static !important;
+		width: auto !important;
+		min-width: 0 !important;
+		min-height: 0 !important;
+		margin: 0 !important;
+		padding: 0 !important;
+		overflow: visible !important;
+		background: #fff !important;
+		border: 0 !important;
+		box-shadow: none !important;
+		transform: none !important;
 	}
 
-	.receipt-printable,
-	.receipt-printable * {
-		visibility: visible !important;
+	body.body-receipt:not(.body-purchase-invoice-print) .app-sidebar,
+	body.body-receipt:not(.body-purchase-invoice-print) .mobile-topbar,
+	body.body-receipt:not(.body-purchase-invoice-print) .page-hero,
+	body.body-receipt:not(.body-purchase-invoice-print) .offcanvas,
+	body.body-receipt:not(.body-purchase-invoice-print) .noPrint,
+	body.body-receipt:not(.body-purchase-invoice-print) .receipt-top-card {
+		display: none !important;
 	}
 
-	.receipt-printable {
+	body.body-receipt:not(.body-purchase-invoice-print) .receipt-printable {
 		position: static !important;
 		width: 48mm !important;
 		max-width: 48mm !important;
 		margin: 0 !important;
 		padding: 0 !important;
-		display: block;
+		display: block !important;
+		visibility: visible !important;
 	}
 
-	body:has(.receipt-printable) .receipt-screen-card,
-	body:has(.receipt-printable) .receipt-preview-shell {
+	body.body-receipt:not(.body-purchase-invoice-print) .receipt-screen-card,
+	body.body-receipt:not(.body-purchase-invoice-print) .receipt-preview-shell {
+		display: block !important;
 		background: #fff !important;
 		border: 0 !important;
 		box-shadow: none !important;
@@ -398,14 +417,9 @@ body {
 		padding: 0 !important;
 	}
 
-	body:has(.receipt-printable) .receipt-top-card,
-	body:has(.receipt-printable) .receipt-page-actions,
-	body:has(.receipt-printable) .receipt-floating-actions,
-	body:has(.receipt-printable) .noPrint {
-		display: none !important;
-	}
-
-	body:has(.receipt-printable) .receipt {
+	body.body-receipt:not(.body-purchase-invoice-print) .receipt {
+		display: block !important;
+		visibility: visible !important;
 		width: 44mm;
 		max-width: 44mm;
 		border: 0;
@@ -416,29 +430,29 @@ body {
 		font-family: Arial, Helvetica, sans-serif;
 	}
 
-	body:has(.receipt-printable) .header h1 {
+	body.body-receipt:not(.body-purchase-invoice-print) .header h1 {
 		font-size: 10pt;
 		margin-bottom: 3px;
 	}
 
-	body:has(.receipt-printable) .header p,
-	body:has(.receipt-printable) .receipt-meta,
-	body:has(.receipt-printable) .product-table,
-	body:has(.receipt-printable) .total p,
-	body:has(.receipt-printable) .footer {
+	body.body-receipt:not(.body-purchase-invoice-print) .header p,
+	body.body-receipt:not(.body-purchase-invoice-print) .receipt-meta,
+	body.body-receipt:not(.body-purchase-invoice-print) .product-table,
+	body.body-receipt:not(.body-purchase-invoice-print) .total p,
+	body.body-receipt:not(.body-purchase-invoice-print) .footer {
 		font-size: 8pt;
 	}
 
-	body:has(.receipt-printable) .product-table th {
+	body.body-receipt:not(.body-purchase-invoice-print) .product-table th {
 		font-size: 7pt;
 	}
 
-	body:has(.receipt-printable) .total p .total-value {
+	body.body-receipt:not(.body-purchase-invoice-print) .total p .total-value {
 		font-size: 9pt;
 		font-weight: 800;
 	}
 
-	body:has(.receipt-printable) .line {
+	body.body-receipt:not(.body-purchase-invoice-print) .line {
 		margin: 9px 0;
 		border-top: 1px dashed #000;
 	}
